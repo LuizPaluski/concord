@@ -2,7 +2,7 @@ import { AudioPresets, RemoteAudioTrack, Room, RoomEvent, Track } from 'livekit-
 import { api } from './api.svelte'
 import { desktop } from './desktop'
 import { noiseFilter } from './noise'
-import { callSound } from './notify'
+import { callSound, muteSound } from './notify'
 import { DEFAULT_LISTEN, RESOLUTIONS, settings } from './settings.svelte'
 
 // Bits por pixel por quadro estimado a partir de presets comuns (1080p60 dá ~8,7 Mbps).
@@ -11,6 +11,11 @@ const BITS_PER_PIXEL = 0.07
 const MAX_BITRATE = 15_000_000
 
 export type Screen = { id: string; name: string; track: Track }
+
+// Call em que eu estava, para voltar a ela quando o app abrir de novo.
+const LAST_CALL = 'concord.call'
+export type LastCall = { server: number; channel: number; label: string }
+export const lastCall = (): LastCall | null => JSON.parse(localStorage.getItem(LAST_CALL) ?? 'null')
 
 class Voice {
   channel = $state(0)
@@ -21,6 +26,7 @@ class Voice {
   picking = $state(false)
   notice = $state('')
   #source = ''
+  #mutedBeforeDeafen = false
   #screenAudio: { ctx: AudioContext; track: MediaStreamTrack } | null = null
   noiseError = $state('')
   speaking = $state<string[]>([])
@@ -33,7 +39,7 @@ class Voice {
     document.body.append(this.#audio)
   }
 
-  async join(channel: number) {
+  async join(channel: number, where?: LastCall) {
     if (this.channel === channel || this.connecting) return
     await this.leave()
     this.connecting = true
@@ -80,6 +86,7 @@ class Voice {
       const { url, token } = await api<{ url: string; token: string }>(`/api/channels/${channel}/voice`)
       await room.connect(url, token)
       this.channel = channel
+      if (where) localStorage.setItem(LAST_CALL, JSON.stringify(where))
       callSound('join')
       await this.#applyMic()
     } catch (err) {
@@ -91,18 +98,26 @@ class Voice {
     }
   }
 
+  // Sair pela mão esquece a call; fechar o app não passa por aqui.
   async leave() {
+    localStorage.removeItem(LAST_CALL)
     await this.#room?.disconnect()
   }
 
   async toggleMute() {
     this.muted = !this.muted
     if (!this.muted && this.deafened) this.#setDeafened(false)
+    muteSound(this.muted)
     await this.#applyMic()
   }
 
+  // Desativar o áudio muta o microfone junto; reativar volta o mic como estava antes.
   async toggleDeafen() {
-    this.#setDeafened(!this.deafened)
+    const on = !this.deafened
+    if (on) this.#mutedBeforeDeafen = this.muted
+    this.#setDeafened(on)
+    this.muted = on || this.#mutedBeforeDeafen
+    muteSound(on)
     await this.#applyMic()
   }
 

@@ -12,7 +12,8 @@
     members,
     onerror,
     onmenu,
-  }: { channel: Channel; members: Presence[]; onerror: (err: unknown) => void; onmenu: (e: MouseEvent, name: string) => void } = $props()
+    onjoin,
+  }: { channel: Channel; members: Presence[]; onerror: (err: unknown) => void; onmenu: (e: MouseEvent, name: string) => void; onjoin: () => void } = $props()
 
   const joined = $derived(voice.channel === channel.id)
 
@@ -67,7 +68,7 @@
       </button>
       <button class="round leave" title="Desconectar" onclick={() => voice.leave()}><Icon name="leave" size={22} /></button>
     {:else}
-      <button class="btn join" disabled={voice.connecting} onclick={() => voice.join(channel.id).catch(onerror)}>
+      <button class="btn join" disabled={voice.connecting} onclick={onjoin}>
         {voice.connecting ? 'Conectando…' : 'Entrar na sala de voz'}
       </button>
     {/if}

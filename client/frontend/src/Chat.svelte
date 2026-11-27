@@ -4,7 +4,7 @@
   import { api, auth, loadPeople, mediaUrl, people, uploadFile, type Channel, type Guild, type Message, type Presence } from './lib/api.svelte'
   import { askPermission, ping, showNotification } from './lib/notify'
   import { settings } from './lib/settings.svelte'
-  import { voice } from './lib/voice.svelte'
+  import { lastCall, voice } from './lib/voice.svelte'
   import Attachment from './lib/Attachment.svelte'
   import Avatar from './lib/Avatar.svelte'
   import Icon from './lib/Icon.svelte'
@@ -15,6 +15,7 @@
   import Settings from './Settings.svelte'
   import SourcePicker from './SourcePicker.svelte'
   import Stage from './Stage.svelte'
+  import StreamPreview from './StreamPreview.svelte'
   import VoiceUserMenu from './VoiceUserMenu.svelte'
   import VoiceStatus from './lib/VoiceStatus.svelte'
 
@@ -44,6 +45,7 @@
   let menu = $state(false)
   let card = $state<{ name: string; x: number; y: number } | null>(null)
   let listenMenu = $state<{ name: string; x: number; y: number } | null>(null)
+  let preview = $state<{ name: string; x: number; y: number } | null>(null)
   let showMembers = $state(true)
   let scroller = $state<HTMLElement>()
   // Rótulo da call atual, que pode ser de outro grupo que não o aberto.
@@ -66,7 +68,7 @@
   let stopped = false
 
   onMount(() => {
-    load().catch(notify)
+    load().then(rejoin).catch(notify)
     connect(false)
     if (settings.notify) askPermission()
     return () => {
@@ -107,6 +109,17 @@
     if (target) return openServer(target.id, currentId, true)
     serverId = currentId = 0
     channels = []
+  }
+
+  // Volta para a call em que eu estava quando o app fechou.
+  async function rejoin() {
+    const last = lastCall()
+    if (!last || voice.channel || !guilds.some((g) => g.id === last.server)) return
+    const chans = last.server === serverId ? channels : await api<Channel[]>(`/api/servers/${last.server}/channels`)
+    if (!chans.some((c) => c.id === last.channel && c.kind === 'voice')) return
+    voiceWhere = last.label
+    voiceServer = last.server
+    await voice.join(last.channel, last)
   }
 
   async function openServer(id: number, keep = 0, reload = false) {
@@ -187,7 +200,7 @@
     if (c.kind === 'voice') {
       voiceWhere = `${c.name} / ${guild?.name ?? ''}`
       voiceServer = serverId
-      voice.join(c.id).catch(notify)
+      voice.join(c.id, { server: serverId, channel: c.id, label: voiceWhere }).catch(notify)
       return
     }
     messages = []
@@ -292,6 +305,11 @@
     await api(`/api/servers/${guild.id}/leave`, { method: 'POST' }).catch(notify)
   }
 
+  function showPreview(e: MouseEvent, name: string) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    preview = { name, x: r.right, y: r.top - 40 }
+  }
+
   function showListen(e: MouseEvent, name: string) {
     e.preventDefault()
     e.stopPropagation()
@@ -390,11 +408,16 @@
             </div>
             {#if c.kind === 'voice'}
               {#each members(c.id) as p (p.name)}
-                <button class="voice-member" class:speaking={voice.speaking.includes(p.name)} onclick={(e) => showCard(e, p.name)} oncontextmenu={(e) => showListen(e, p.name)}>
-                  <Avatar name={p.name} size={24} />
-                  <Name name={p.name} />
-                  <VoiceStatus {p} />
-                </button>
+                <div role="group" onmouseenter={(e) => p.sharing && showPreview(e, p.name)} onmouseleave={() => (preview = null)}>
+                  <button class="voice-member" class:speaking={voice.speaking.includes(p.name)} onclick={(e) => showCard(e, p.name)} oncontextmenu={(e) => showListen(e, p.name)}>
+                    <Avatar name={p.name} size={24} />
+                    <Name name={p.name} />
+                    <VoiceStatus {p} />
+                  </button>
+                  {#if preview?.name === p.name && p.sharing}
+                    <StreamPreview {...preview} onwatch={() => ((preview = null), open(c).catch(notify))} />
+                  {/if}
+                </div>
               {/each}
             {/if}
           {/each}
@@ -439,7 +462,7 @@
   </aside>
 
   {#if current?.kind === 'voice'}
-    <Stage channel={current} members={members(current.id)} onerror={notify} onmenu={showListen} />
+    <Stage channel={current} members={members(current.id)} onerror={notify} onmenu={showListen} onjoin={() => open(current).catch(notify)} />
   {:else if current}
     <main class="chat" ondragover={(e) => e.preventDefault()} ondrop={(e) => (e.preventDefault(), attach(e.dataTransfer?.files[0]))}>
       <header class="topbar">

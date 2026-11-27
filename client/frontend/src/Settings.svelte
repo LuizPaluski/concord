@@ -144,8 +144,8 @@
         </label>
         <label class="row">
           <span>
-            <strong>Sons de entrada e saída</strong>
-            <small>Avisa com um som quando alguém entra ou sai da sua call.</small>
+            <strong>Sons da call</strong>
+            <small>Toca um som quando alguém entra ou sai da call e quando você muta ou desmuta.</small>
           </span>
           <input type="checkbox" class="switch" bind:checked={settings.callSound} />
         </label>

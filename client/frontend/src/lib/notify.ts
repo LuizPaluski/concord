@@ -29,6 +29,10 @@ export function callSound(kind: 'join' | 'leave') {
   if (settings.callSound) tone(kind === 'join' ? [[523, 0], [784, 0.09]] : [[784, 0], [523, 0.09]], 0.1)
 }
 
+export function muteSound(on: boolean) {
+  if (settings.callSound) tone(on ? [[660, 0, 440]] : [[440, 0, 660]], 0.09)
+}
+
 export function showNotification(title: string, body: string, onclick: () => void) {
   if (!settings.notify || !('Notification' in window) || Notification.permission !== 'granted') return
   const n = new Notification(title, { body, silent: true })
