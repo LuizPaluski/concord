@@ -13,10 +13,7 @@
 
 <header class="titlebar">
   <div class="title">
-    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-      <rect width="24" height="24" rx="5.3" fill="#5865f2" />
-      <path d="M16.1 8.2A6 6 0 1 0 16.1 15.8" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" />
-    </svg>
+    <img src="/icon.png" width="16" height="16" alt="" />
     Concord
   </div>
   <div class="controls">
