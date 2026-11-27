@@ -21,7 +21,7 @@ func TestFluxoCompleto(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	s := &server{db: db, hub: newHub(), lk: livekit{URL: "ws://lk", Key: "k", Secret: "s"}}
+	s := &server{db: db, hub: newHub(), lk: livekit{URL: "ws://lk", Key: "k", Secret: "s"}, files: t.TempDir()}
 	ts := httptest.NewServer(s.routes())
 	defer ts.Close()
 

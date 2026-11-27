@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
-  import { api, auth, loadPeople, mediaUrl, people, type Channel, type Guild, type Message, type Presence } from './lib/api.svelte'
+  import { api, auth, loadPeople, mediaUrl, people, uploadFile, type Channel, type Guild, type Message, type Presence } from './lib/api.svelte'
   import { askPermission, ping, showNotification } from './lib/notify'
   import { settings } from './lib/settings.svelte'
   import { voice } from './lib/voice.svelte'
+  import Attachment from './lib/Attachment.svelte'
   import Avatar from './lib/Avatar.svelte'
   import Icon from './lib/Icon.svelte'
   import Name from './lib/Name.svelte'
@@ -32,6 +33,10 @@
   const unread = new SvelteSet<number>()
   const unreadServers = new SvelteSet<number>()
   let draft = $state('')
+  let pending = $state<{ file: File; preview: string } | null>(null)
+  let sending = $state(false)
+  let viewing = $state('')
+  const MAX_FILE = 100 * 1024 * 1024
   let toast = $state('')
   let creating = $state<Channel['kind'] | null>(null)
   let newName = $state('')
@@ -163,7 +168,8 @@
     if (document.hasFocus()) return
     const channel = channels.find((c) => c.id === m.channel)
     const where = channel ? `#${channel.name}` : (guilds.find((g) => g.id === server)?.name ?? '')
-    showNotification(`${m.author} em ${where}`, m.body, () => openServer(server, m.channel).catch(notify))
+    const text = m.body || (m.file?.mime.startsWith('video/') ? 'Enviou um vídeo' : 'Enviou uma foto')
+    showNotification(`${m.author} em ${where}`, text, () => openServer(server, m.channel).catch(notify))
   }
 
   async function append(m: Message) {
@@ -208,15 +214,38 @@
     scroller.scrollTop += scroller.scrollHeight - height
   }
 
+  function attach(file: File | undefined) {
+    if (!file) return
+    if (!/^(image\/(png|jpeg|gif|webp)|video\/(mp4|webm))$/.test(file.type)) return notify('Só foto (PNG, JPG, GIF, WebP) ou vídeo (MP4, WebM).')
+    if (file.size > MAX_FILE) return notify('Arquivo maior que 100 MB.')
+    if (pending) URL.revokeObjectURL(pending.preview)
+    pending = { file, preview: URL.createObjectURL(file) }
+  }
+
+  // Foto e vídeo crescem ao carregar; quem estava no fim da conversa continua no fim.
+  function keepBottom(e: Event) {
+    const el = e.target as HTMLElement
+    if (scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight - el.clientHeight < 150) scroller.scrollTo({ top: scroller.scrollHeight })
+  }
+
+  function unattach() {
+    if (pending) URL.revokeObjectURL(pending.preview)
+    pending = null
+  }
+
   async function send() {
     const body = draft.trim()
-    if (!body) return
-    draft = ''
+    if ((!body && !pending) || sending) return
+    sending = true
     try {
-      await api(`/api/channels/${currentId}/messages`, { method: 'POST', body: { body } })
+      const file = pending ? (await uploadFile(pending.file)).id : undefined
+      await api(`/api/channels/${currentId}/messages`, { method: 'POST', body: { body, file } })
+      draft = ''
+      unattach()
     } catch (err) {
-      draft = body
       notify(err)
+    } finally {
+      sending = false
     }
   }
 
@@ -412,7 +441,7 @@
   {#if current?.kind === 'voice'}
     <Stage channel={current} members={members(current.id)} onerror={notify} onmenu={showListen} />
   {:else if current}
-    <main class="chat">
+    <main class="chat" ondragover={(e) => e.preventDefault()} ondrop={(e) => (e.preventDefault(), attach(e.dataTransfer?.files[0]))}>
       <header class="topbar">
         <Icon name="hash" size={22} />
         <h1>{current.name}</h1>
@@ -421,7 +450,7 @@
         </button>
       </header>
 
-      <div class="messages" bind:this={scroller} onscroll={() => older().catch(notify)}>
+      <div class="messages" bind:this={scroller} onscroll={() => older().catch(notify)} onloadcapture={keepBottom} onloadedmetadatacapture={keepBottom}>
         <div class="spacer"></div>
         {#if !hasMore}
           <div class="welcome">
@@ -437,7 +466,8 @@
           {#if continues(i)}
             <div class="msg follow">
               <time>{clock(m.createdAt)}</time>
-              <p>{m.body}</p>
+              {#if m.body}<p>{m.body}</p>{/if}
+              {#if m.file}<Attachment file={m.file} onview={(url) => (viewing = url)} />{/if}
             </div>
           {:else}
             <div class="msg head">
@@ -447,7 +477,8 @@
                   <button class="author" onclick={(e) => showCard(e, m.author)}><Name name={m.author} /></button>
                   <time>{when(m.createdAt)}</time>
                 </div>
-                <p>{m.body}</p>
+                {#if m.body}<p>{m.body}</p>{/if}
+                {#if m.file}<Attachment file={m.file} onview={(url) => (viewing = url)} />{/if}
               </div>
             </div>
           {/if}
@@ -456,7 +487,35 @@
       </div>
 
       <form class="composer" onsubmit={(e) => (e.preventDefault(), send())}>
-        <textarea bind:value={draft} onkeydown={onKey} rows="1" maxlength="4000" placeholder="Conversar em #{current.name}"></textarea>
+        {#if pending}
+          <div class="pending">
+            {#if pending.file.type.startsWith('video/')}
+              <!-- svelte-ignore a11y_media_has_caption -->
+              <video src={pending.preview} muted></video>
+            {:else}
+              <img src={pending.preview} alt="" />
+            {/if}
+            <span>{sending ? 'Enviando…' : pending.file.name}</span>
+            <button type="button" class="icon-btn" title="Remover anexo" aria-label="Remover anexo" disabled={sending} onclick={unattach}><Icon name="trash" size={18} /></button>
+          </div>
+        {/if}
+        <div class="compose-row">
+          <label class="attach" title="Enviar foto ou vídeo">
+            <Icon name="plusCircle" size={22} />
+            <input type="file" accept="image/png,image/jpeg,image/gif,image/webp,video/mp4,video/webm" hidden onchange={(e) => (attach(e.currentTarget.files?.[0]), (e.currentTarget.value = ''))} />
+          </label>
+          <textarea
+            bind:value={draft}
+            onkeydown={onKey}
+            onpaste={(e) => {
+              const file = e.clipboardData?.files[0]
+              if (file) (e.preventDefault(), attach(file))
+            }}
+            rows="1"
+            maxlength="4000"
+            placeholder="Conversar em #{current.name}"
+          ></textarea>
+        </div>
       </form>
     </main>
 
@@ -491,6 +550,11 @@
   {/if}
 
   {#if listenMenu}<VoiceUserMenu {...listenMenu} />{/if}
+  {#if viewing}
+    <div class="backdrop viewer" role="presentation" onclick={() => (viewing = '')}>
+      <img src={viewing} alt="" />
+    </div>
+  {/if}
   {#if toast}<div class="toast" role="status">{toast}</div>{/if}
   {#if modal === 'settings'}<Settings onclose={() => (modal = null)} onerror={notify} />{/if}
   {#if modal === 'server' && guild}<ServerSettings {guild} {channels} onclose={() => (modal = null)} onerror={notify} />{/if}
@@ -884,6 +948,58 @@
     padding: 0 16px;
     border-radius: var(--radius);
     background: var(--input);
+  }
+
+  .compose-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .attach {
+    display: grid;
+    margin-top: 9px;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .attach:hover {
+    color: var(--strong);
+  }
+
+  .pending {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .pending img,
+  .pending video {
+    width: 96px;
+    height: 72px;
+    object-fit: cover;
+    border-radius: 4px;
+    background: var(--rail);
+  }
+
+  .pending span {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+  }
+
+  .viewer {
+    cursor: zoom-out;
+  }
+
+  .viewer img {
+    max-width: 90vw;
+    max-height: 90vh;
+    border-radius: 4px;
   }
 
   .composer textarea {

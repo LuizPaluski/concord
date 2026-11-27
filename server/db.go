@@ -77,6 +77,17 @@ INSERT INTO channels_new (id, server_id, name, kind) SELECT id, 1, name, kind FR
 DROP TABLE channels;
 ALTER TABLE channels_new RENAME TO channels;
 `,
+	// Anexos do chat; o conteúdo fica em disco, ao lado do banco.
+	`
+CREATE TABLE files (
+	id TEXT PRIMARY KEY,
+	mime TEXT NOT NULL,
+	name TEXT NOT NULL,
+	size INTEGER NOT NULL,
+	user_id INTEGER NOT NULL REFERENCES users(id)
+);
+ALTER TABLE messages ADD COLUMN file_id TEXT REFERENCES files(id);
+`,
 }
 
 func openDB(path string) (*sql.DB, error) {

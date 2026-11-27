@@ -22,7 +22,7 @@ func newHarness(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	s := &server{db: db, hub: newHub(), lk: livekit{URL: "ws://lk", Key: "k", Secret: "s"}}
+	s := &server{db: db, hub: newHub(), lk: livekit{URL: "ws://lk", Key: "k", Secret: "s"}, files: t.TempDir()}
 	ts := httptest.NewServer(s.routes())
 	t.Cleanup(ts.Close)
 	return &harness{t, s, ts}
@@ -187,5 +187,45 @@ func TestMigraBancoAntigo(t *testing.T) {
 	db.QueryRow(`PRAGMA foreign_keys`).Scan(&fk)
 	if fk != 1 {
 		t.Fatal("chaves estrangeiras ficaram desligadas depois da migração")
+	}
+}
+
+func TestAnexos(t *testing.T) {
+	h := newHarness(t)
+	invite, _ := h.s.bootstrapInvite()
+	var ana, beto session
+	h.call("POST", "/api/register", "", credentials{invite, "ana", "senha-forte"}, 200, &ana)
+	var inv struct{ Code string }
+	h.call("POST", "/api/servers/1/invites", ana.Token, nil, 200, &inv)
+	h.call("POST", "/api/register", "", credentials{inv.Code, "beto", "senha-forte"}, 200, &beto)
+	var chans []channel
+	h.call("GET", "/api/servers/1/channels", ana.Token, nil, 200, &chans)
+	msgs := "/api/channels/" + itoa(chans[0].ID) + "/messages"
+
+	h.raw("POST", "/api/files?name=x.html", ana.Token, []byte("<html><script>alert(1)</script>"), 400)
+	mp4 := append([]byte("\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom"), bytes.Repeat([]byte{7}, 2000)...)
+	var a attachment
+	json.Unmarshal(h.raw("POST", "/api/files?name=../../clipe.mp4", ana.Token, mp4, 200), &a)
+	if a.Mime != "video/mp4" || a.Name != "clipe.mp4" || a.Size != int64(len(mp4)) {
+		t.Fatalf("anexo errado: %+v", a)
+	}
+
+	h.call("POST", msgs, beto.Token, map[string]string{"file": a.ID}, 400, nil)
+	h.call("POST", msgs, ana.Token, map[string]string{"file": a.ID}, 200, nil)
+	var got []message
+	h.call("GET", msgs, beto.Token, nil, 200, &got)
+	if len(got) != 1 || got[0].File == nil || *got[0].File != a {
+		t.Fatalf("mensagem sem o anexo: %+v", got)
+	}
+
+	req, _ := http.NewRequest("GET", h.ts.URL+"/files/"+a.ID, nil)
+	req.Header.Set("Range", "bytes=0-9")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusPartialContent || res.Header.Get("Content-Type") != "video/mp4" {
+		t.Fatalf("vídeo precisa aceitar Range: %d %s", res.StatusCode, res.Header.Get("Content-Type"))
 	}
 }

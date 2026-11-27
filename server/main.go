@@ -4,17 +4,24 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 )
 
 func main() {
-	db, err := openDB(env("CONCORD_DB", "concord.db"))
+	dbPath := env("CONCORD_DB", "concord.db")
+	db, err := openDB(dbPath)
 	if err != nil {
 		log.Fatal(err)
 	}
+	files := filepath.Join(filepath.Dir(dbPath), "files")
+	if err := os.MkdirAll(files, 0o755); err != nil {
+		log.Fatal(err)
+	}
 	s := &server{
-		db:  db,
-		hub: newHub(),
-		lk:  livekit{URL: os.Getenv("LIVEKIT_URL"), Key: os.Getenv("LIVEKIT_KEY"), Secret: os.Getenv("LIVEKIT_SECRET")},
+		db:    db,
+		hub:   newHub(),
+		files: files,
+		lk:    livekit{URL: os.Getenv("LIVEKIT_URL"), Key: os.Getenv("LIVEKIT_KEY"), Secret: os.Getenv("LIVEKIT_SECRET")},
 	}
 	if s.lk.URL == "" || s.lk.Key == "" || s.lk.Secret == "" {
 		log.Fatal("defina LIVEKIT_URL, LIVEKIT_KEY e LIVEKIT_SECRET")

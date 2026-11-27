@@ -3,7 +3,8 @@ export type Profile = User & { avatar: string; banner: string; color: string; co
 export type Effect = '' | 'gradient' | 'glow' | 'rainbow'
 export type Guild = { id: number; name: string; icon: string; owner: number }
 export type Channel = { id: number; server: number; name: string; kind: 'text' | 'voice' }
-export type Message = { id: number; channel: number; author: string; authorId: number; body: string; createdAt: number }
+export type Attachment = { id: string; mime: string; name: string; size: number }
+export type Message = { id: number; channel: number; author: string; authorId: number; body: string; file: Attachment | null; createdAt: number }
 export type Presence = { name: string; voice: number; muted: boolean; deafened: boolean; sharing: boolean }
 type Session = { server: string; token: string; user: User }
 
@@ -26,6 +27,9 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
 }
 
 export const mediaUrl = (id: string) => (id ? `${auth.session!.server}/media/${id}` : '')
+export const fileUrl = (id: string) => `${auth.session!.server}/files/${id}`
+
+export const uploadFile = (file: File) => api<Attachment>(`/api/files?name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file })
 
 export async function loadPeople() {
   for (const p of await api<Profile[]>('/api/users')) people[p.name] = p

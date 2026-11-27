@@ -21,9 +21,10 @@ import (
 )
 
 type server struct {
-	db  *sql.DB
-	hub *hub
-	lk  livekit
+	db    *sql.DB
+	hub   *hub
+	lk    livekit
+	files string // pasta dos anexos
 }
 
 type user struct {
@@ -39,12 +40,13 @@ type channel struct {
 }
 
 type message struct {
-	ID        int64  `json:"id"`
-	Channel   int64  `json:"channel"`
-	Author    string `json:"author"`
-	AuthorID  int64  `json:"authorId"`
-	Body      string `json:"body"`
-	CreatedAt int64  `json:"createdAt"`
+	ID        int64       `json:"id"`
+	Channel   int64       `json:"channel"`
+	Author    string      `json:"author"`
+	AuthorID  int64       `json:"authorId"`
+	Body      string      `json:"body"`
+	File      *attachment `json:"file"`
+	CreatedAt int64       `json:"createdAt"`
 }
 
 func (s *server) routes() http.Handler {
@@ -55,6 +57,8 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /api/profile", s.auth(s.updateProfile))
 	mux.HandleFunc("POST /api/media", s.auth(s.uploadMedia))
 	mux.HandleFunc("GET /media/{id}", s.media)
+	mux.HandleFunc("POST /api/files", s.auth(s.uploadFile))
+	mux.HandleFunc("GET /files/{id}", s.file)
 	mux.HandleFunc("GET /api/servers", s.auth(s.listServers))
 	mux.HandleFunc("POST /api/servers", s.auth(s.createServer))
 	mux.HandleFunc("POST /api/servers/{id}", s.auth(s.updateServer))
@@ -268,8 +272,8 @@ func (s *server) listMessages(w http.ResponseWriter, r *http.Request, u user) {
 		}
 	}
 	rows, err := s.db.Query(`
-		SELECT m.id, m.channel_id, u.name, u.id, m.body, m.created_at
-		FROM messages m JOIN users u ON u.id = m.user_id
+		SELECT m.id, m.channel_id, u.name, u.id, m.body, m.created_at, f.id, f.mime, f.name, f.size
+		FROM messages m JOIN users u ON u.id = m.user_id LEFT JOIN files f ON f.id = m.file_id
 		WHERE m.channel_id = ? AND m.id < ?
 		ORDER BY m.id DESC LIMIT 50`, c.ID, before)
 	if err != nil {
@@ -280,9 +284,14 @@ func (s *server) listMessages(w http.ResponseWriter, r *http.Request, u user) {
 	msgs := []message{}
 	for rows.Next() {
 		var m message
-		if err := rows.Scan(&m.ID, &m.Channel, &m.Author, &m.AuthorID, &m.Body, &m.CreatedAt); err != nil {
+		var fid, fmime, fname sql.NullString
+		var fsize sql.NullInt64
+		if err := rows.Scan(&m.ID, &m.Channel, &m.Author, &m.AuthorID, &m.Body, &m.CreatedAt, &fid, &fmime, &fname, &fsize); err != nil {
 			fail(w, err)
 			return
+		}
+		if fid.Valid {
+			m.File = &attachment{fid.String, fmime.String, fname.String, fsize.Int64}
 		}
 		msgs = append(msgs, m)
 	}
@@ -297,14 +306,30 @@ func (s *server) listMessages(w http.ResponseWriter, r *http.Request, u user) {
 func (s *server) postMessage(w http.ResponseWriter, r *http.Request, u user) {
 	var in struct {
 		Body string `json:"body"`
+		File string `json:"file"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
 	m := message{Author: u.Name, AuthorID: u.ID, Body: strings.TrimSpace(in.Body)}
-	if n := utf8.RuneCountInString(m.Body); n < 1 || n > 4000 {
+	if n := utf8.RuneCountInString(m.Body); (n < 1 && in.File == "") || n > 4000 {
 		http.Error(w, "mensagem precisa ter de 1 a 4000 caracteres", http.StatusBadRequest)
 		return
+	}
+	var fileID sql.NullString
+	if in.File != "" {
+		// Só dá para anexar arquivo que a própria pessoa subiu.
+		a := attachment{ID: in.File}
+		err := s.db.QueryRow(`SELECT mime, name, size FROM files WHERE id = ? AND user_id = ?`, in.File, u.ID).Scan(&a.Mime, &a.Name, &a.Size)
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "anexo não encontrado", http.StatusBadRequest)
+			return
+		}
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		m.File, fileID = &a, sql.NullString{String: a.ID, Valid: true}
 	}
 	c, owner, err := s.channelAccess(u, r.PathValue("id"))
 	if err == nil && c.Kind != "text" {
@@ -314,7 +339,7 @@ func (s *server) postMessage(w http.ResponseWriter, r *http.Request, u user) {
 		return
 	}
 	m.Channel = c.ID
-	err = s.db.QueryRow(`INSERT INTO messages (channel_id, user_id, body) VALUES (?, ?, ?) RETURNING id, created_at`, c.ID, u.ID, m.Body).
+	err = s.db.QueryRow(`INSERT INTO messages (channel_id, user_id, body, file_id) VALUES (?, ?, ?, ?) RETURNING id, created_at`, c.ID, u.ID, m.Body, fileID).
 		Scan(&m.ID, &m.CreatedAt)
 	if err != nil {
 		fail(w, err)
