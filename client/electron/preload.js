@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld('desktop', {
     forgetScreenAudio()
     return ipcRenderer.invoke('screen:audio-stop')
   },
+  setMuteKey: (accelerator) => ipcRenderer.invoke('hotkey:set', accelerator),
+  onMuteKey: (fn) => ipcRenderer.on('hotkey:mute', () => fn()),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
   installUpdate: () => ipcRenderer.invoke('update:install'),
 })

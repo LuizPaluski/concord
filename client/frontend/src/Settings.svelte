@@ -1,5 +1,7 @@
 <script lang="ts">
   import { api, auth, logout, people, uploadImage, type Effect, type Profile } from './lib/api.svelte'
+  import { desktop } from './lib/desktop'
+  import { accelerator } from './lib/hotkey'
   import { askPermission } from './lib/notify'
   import { FRAME_RATES, RESOLUTIONS, THEMES, settings } from './lib/settings.svelte'
   import { voice } from './lib/voice.svelte'
@@ -24,6 +26,41 @@
   let busy = $state(false)
   const dirty = $derived(JSON.stringify(draft) !== JSON.stringify(saved()))
   const denied = 'Notification' in window && Notification.permission === 'denied'
+
+  let capturing = $state(false)
+  let keyError = $state('')
+
+  // Enquanto grava, o atalho atual sai do ar; senão o Windows o entrega ao Concord e a tela nunca o vê.
+  function startCapture() {
+    capturing = true
+    keyError = ''
+    desktop!.setMuteKey('')
+  }
+
+  function stopCapture() {
+    if (!capturing) return
+    capturing = false
+    desktop!.setMuteKey(settings.muteKey)
+  }
+
+  async function setKey(key: string) {
+    capturing = false
+    keyError = ''
+    if (await desktop!.setMuteKey(key)) settings.muteKey = key
+    else {
+      keyError = `${key} já é usado por outro programa. Tente outra combinação.`
+      await desktop!.setMuteKey(settings.muteKey)
+    }
+  }
+
+  function capture(e: KeyboardEvent) {
+    if (!capturing) return
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.key === 'Escape') return stopCapture()
+    const key = accelerator(e)
+    if (key) setKey(key)
+  }
 
   async function pick(e: Event, field: 'avatar' | 'banner', w: number, h: number) {
     const input = e.currentTarget as HTMLInputElement
@@ -150,6 +187,24 @@
           <input type="checkbox" class="switch" bind:checked={settings.callSound} />
         </label>
       </section>
+      {#if desktop}
+        <h3>Atalhos</h3>
+        <section>
+          <div class="row">
+            <span>
+              <strong>Mutar e desmutar</strong>
+              <small>Funciona com o jogo aberto. Use uma combinação, como Ctrl+Shift+M, ou uma tecla F.</small>
+              {#if keyError}<small class="fail">{keyError}</small>{/if}
+            </span>
+            <div class="keys">
+              <button class="keycap" class:recording={capturing} onclick={startCapture} onkeydown={capture} onblur={stopCapture}>
+                {capturing ? 'Aperte o atalho…' : settings.muteKey || 'Sem atalho'}
+              </button>
+              {#if settings.muteKey && !capturing}<button class="link" onclick={() => setKey('')}>Remover</button>{/if}
+            </div>
+          </div>
+        </section>
+      {/if}
       <h3>Transmissão de tela</h3>
       <section>
         <div class="row">
@@ -536,6 +591,30 @@
   .choices button.on {
     color: #fff;
     background: var(--accent);
+  }
+
+  .keys {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: none;
+  }
+
+  .keycap {
+    min-width: 140px;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: ui-monospace, Consolas, monospace;
+    color: var(--strong);
+    background: var(--rail);
+    border: 1px solid var(--line);
+  }
+
+  .keycap.recording {
+    color: var(--red);
+    border-color: var(--red);
   }
 
   .note {

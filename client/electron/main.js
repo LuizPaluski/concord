@@ -1,4 +1,4 @@
-const { app, BrowserWindow, desktopCapturer, ipcMain, net, protocol, session, shell } = require('electron')
+const { app, BrowserWindow, desktopCapturer, globalShortcut, ipcMain, net, protocol, session, shell } = require('electron')
 const { autoUpdater } = require('electron-updater')
 const { spawn } = require('node:child_process')
 const os = require('node:os')
@@ -149,6 +149,20 @@ ipcMain.handle('screen:audio-start', (_, id) => {
 })
 
 ipcMain.handle('screen:audio-stop', stopScreenAudio)
+
+// Atalho global de mutar: funciona com o jogo em primeiro plano. O Windows entrega a
+// combinação só para o Concord, então ela deixa de chegar nos outros programas.
+ipcMain.handle('hotkey:set', (_, accelerator) => {
+  globalShortcut.unregisterAll()
+  if (!accelerator) return true
+  try {
+    return globalShortcut.register(accelerator, () => send('hotkey:mute'))
+  } catch {
+    return false
+  }
+})
+
+app.on('will-quit', () => globalShortcut.unregisterAll())
 
 ipcMain.handle('update:check', async () => {
   if (!app.isPackaged) return null

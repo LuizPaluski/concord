@@ -328,3 +328,8 @@ class Voice {
 }
 
 export const voice = new Voice()
+
+if (desktop) {
+  desktop.onMuteKey(() => voice.toggleMute().catch(() => {}))
+  desktop.setMuteKey(settings.muteKey)
+}

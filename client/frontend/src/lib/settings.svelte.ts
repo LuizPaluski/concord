@@ -24,6 +24,8 @@ type Settings = {
   // Ajustes que cada um faz só para si sobre o áudio dos outros, por nome.
   listen: Record<string, Listen>
   hideTiles: boolean
+  // Atalho no formato do Electron (ex.: "Ctrl+Shift+M"); vazio é sem atalho.
+  muteKey: string
 }
 
 export type Listen = { volume: number; muted: boolean; screenVolume: number; screenMuted: boolean }
@@ -40,6 +42,7 @@ export const settings = $state<Settings>({
   theme: 'escuro',
   listen: {},
   hideTiles: false,
+  muteKey: '',
   ...JSON.parse(localStorage.getItem(KEY) ?? '{}'),
 })
 

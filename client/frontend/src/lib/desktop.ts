@@ -11,6 +11,8 @@ type Desktop = {
   nativeScreenAudio(): Promise<boolean>
   startScreenAudio(id: string, onChunk: (pcm: Uint8Array) => void, onError: (message: string) => void): Promise<void>
   stopScreenAudio(): Promise<void>
+  setMuteKey(accelerator: string): Promise<boolean>
+  onMuteKey(fn: () => void): void
   checkUpdate(): Promise<{ version: string } | null>
   installUpdate(): Promise<void>
 }
