@@ -6,6 +6,12 @@
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
+  "info": {
+    "companyName": "Concord",
+    "productName": "Concord",
+    "productVersion": "0.1.0",
+    "copyright": "Concord"
+  },
   "author": {
     "name": "LuizPaluski",
     "email": "luizgustavodelimapalauski@gmail.com"
