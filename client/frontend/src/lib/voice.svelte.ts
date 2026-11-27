@@ -1,5 +1,7 @@
 import { Room, RoomEvent, ScreenSharePresets, Track } from 'livekit-client'
 import { api } from './api.svelte'
+import { noiseFilter } from './noise'
+import { settings } from './settings.svelte'
 
 export type Screen = { id: string; name: string; track: Track }
 
@@ -9,6 +11,7 @@ class Voice {
   muted = $state(false)
   deafened = $state(false)
   sharing = $state(false)
+  noiseError = $state('')
   speaking = $state<string[]>([])
   screens = $state.raw<Screen[]>([])
   #room: Room | null = null
@@ -27,6 +30,7 @@ class Voice {
     this.#room = room
     room
       .on(RoomEvent.TrackSubscribed, (track) => {
+        if (this.#room !== room) return
         if (track.kind === Track.Kind.Audio) {
           const el = track.attach()
           el.muted = this.deafened
@@ -40,8 +44,14 @@ class Voice {
       })
       .on(RoomEvent.LocalTrackPublished, () => this.#refresh())
       .on(RoomEvent.LocalTrackUnpublished, () => this.#refresh())
-      .on(RoomEvent.ActiveSpeakersChanged, (ps) => (this.speaking = ps.map((p) => p.identity)))
-      .on(RoomEvent.Disconnected, () => this.#reset())
+      .on(RoomEvent.ActiveSpeakersChanged, (ps) => {
+        if (this.#room === room) this.speaking = ps.map((p) => p.identity)
+      })
+      // Sem essa checagem, o aviso atrasado de uma sala antiga zerava a sala nova:
+      // o áudio seguia tocando, mas as telas compartilhadas nunca apareciam.
+      .on(RoomEvent.Disconnected, () => {
+        if (this.#room === room) this.#reset()
+      })
     try {
       const { url, token } = await api<{ url: string; token: string }>(`/api/channels/${channel}/voice`)
       await room.connect(url, token)
@@ -49,7 +59,7 @@ class Voice {
       await this.#applyMic()
     } catch (err) {
       await room.disconnect()
-      this.#reset()
+      if (this.#room === room) this.#reset()
       throw err
     } finally {
       this.connecting = false
@@ -69,6 +79,11 @@ class Voice {
   async toggleDeafen() {
     this.#setDeafened(!this.deafened)
     await this.#applyMic()
+  }
+
+  async setNoise(on: boolean) {
+    settings.noise = on
+    await this.#applyNoise()
   }
 
   async toggleScreen() {
@@ -92,8 +107,23 @@ class Voice {
     this.#audio.querySelectorAll('audio').forEach((el) => (el.muted = on))
   }
 
-  #applyMic() {
-    return this.#room?.localParticipant.setMicrophoneEnabled(!this.muted && !this.deafened)
+  async #applyMic() {
+    await this.#room?.localParticipant.setMicrophoneEnabled(!this.muted && !this.deafened)
+    await this.#applyNoise()
+  }
+
+  // A trilha do microfone só existe depois da primeira vez que ele é ligado.
+  // Se o filtro falhar, a chamada segue sem ele: perder a voz é pior que ouvir o teclado.
+  async #applyNoise() {
+    const mic = this.#room?.localParticipant.getTrackPublication(Track.Source.Microphone)?.audioTrack
+    if (!mic) return
+    try {
+      if (settings.noise && !mic.getProcessor()) await mic.setProcessor(noiseFilter())
+      else if (!settings.noise && mic.getProcessor()) await mic.stopProcessor()
+      this.noiseError = ''
+    } catch (err) {
+      this.noiseError = (err as Error).message || 'falha ao iniciar o filtro'
+    }
   }
 
   #refresh() {
