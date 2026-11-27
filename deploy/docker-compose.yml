@@ -1,0 +1,40 @@
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - 80:80
+      - 443:443
+    environment:
+      DOMAIN: ${DOMAIN}
+      LK_DOMAIN: ${LK_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy:/data
+
+  concord:
+    build: ../server
+    restart: unless-stopped
+    environment:
+      LIVEKIT_URL: wss://${LK_DOMAIN}
+      LIVEKIT_KEY: ${LIVEKIT_KEY}
+      LIVEKIT_SECRET: ${LIVEKIT_SECRET}
+    volumes:
+      - concord:/data
+
+  livekit:
+    image: livekit/livekit-server:v1.13.11
+    restart: unless-stopped
+    command: --config /etc/livekit.yaml
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_KEY}: ${LIVEKIT_SECRET}"
+    ports:
+      # Mídia de voz e tela vai direto aqui, sem passar pelo Caddy.
+      - 7881:7881/tcp
+      - 7882:7882/udp
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+
+volumes:
+  caddy:
+  concord:

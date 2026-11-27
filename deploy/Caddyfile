@@ -1,0 +1,7 @@
+{$DOMAIN} {
+	reverse_proxy concord:8080
+}
+
+{$LK_DOMAIN} {
+	reverse_proxy livekit:7880
+}
