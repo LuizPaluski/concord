@@ -13,6 +13,7 @@ import (
 var assets embed.FS
 
 func main() {
+	app := &App{releasesURL: latestRelease}
 	err := wails.Run(&options.App{
 		Title:            "Concord",
 		Width:            1200,
@@ -20,7 +21,9 @@ func main() {
 		MinWidth:         760,
 		MinHeight:        500,
 		AssetServer:      &assetserver.Options{Assets: assets},
-		BackgroundColour: &options.RGBA{R: 13, G: 15, B: 19, A: 255},
+		BackgroundColour: &options.RGBA{R: 30, G: 31, B: 34, A: 255},
+		OnStartup:        app.startup,
+		Bind:             []any{app},
 	})
 	if err != nil {
 		log.Fatal(err)

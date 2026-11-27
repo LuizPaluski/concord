@@ -30,6 +30,10 @@ Unicode true
 ####
 ## !define REQUEST_EXECUTION_LEVEL "admin"            # Default "admin"  see also https://nsis.sourceforge.io/Docs/Chapter4.html
 ####
+# Instala na pasta do usuário: sem pedido de administrador, a atualização automática roda calada.
+!define REQUEST_EXECUTION_LEVEL "user"
+!define WAILS_INSTALL_SCOPE "user"
+####
 ## Include the wails tools
 ####
 !include "wails_tools.nsh"
@@ -58,7 +62,6 @@ ManifestDPIAware true
 
 !insertmacro MUI_PAGE_WELCOME # Welcome to the installer page.
 # !insertmacro MUI_PAGE_LICENSE "resources\eula.txt" # Adds a EULA page to the installer
-!insertmacro MUI_PAGE_DIRECTORY # In which folder install page.
 !insertmacro MUI_PAGE_INSTFILES # Installing page.
 !insertmacro MUI_PAGE_FINISH # Finished installation page.
 
@@ -85,6 +88,27 @@ ShowInstDetails show # This will always show the installation details.
 
 Function .onInit
    !insertmacro wails.checkArchitecture
+   # Na atualização automática o app acabou de pedir para fechar: espera até 15 s
+   # ele soltar o .exe, senão a cópia do arquivo novo falha.
+   IfSilent 0 done
+   StrCpy $1 0
+   wait:
+      IfFileExists "$INSTDIR\${PRODUCT_EXECUTABLE}" 0 done
+      ClearErrors
+      FileOpen $0 "$INSTDIR\${PRODUCT_EXECUTABLE}" a
+      IfErrors 0 unlocked
+      IntOp $1 $1 + 1
+      IntCmp $1 30 done
+      Sleep 500
+      Goto wait
+   unlocked:
+      FileClose $0
+   done:
+FunctionEnd
+
+Function .onInstSuccess
+   IfSilent 0 +2
+      Exec '"$INSTDIR\${PRODUCT_EXECUTABLE}"'
 FunctionEnd
 
 Section

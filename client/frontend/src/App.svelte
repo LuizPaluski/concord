@@ -2,6 +2,7 @@
   import { auth } from './lib/api.svelte'
   import Chat from './Chat.svelte'
   import Login from './Login.svelte'
+  import Updater from './Updater.svelte'
 </script>
 
 {#if auth.session}
@@ -9,3 +10,4 @@
 {:else}
   <Login />
 {/if}
+<Updater />
