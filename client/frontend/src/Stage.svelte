@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { Track } from 'livekit-client'
   import { hue, type Channel, type Presence } from './lib/api.svelte'
+  import Avatar from './lib/Avatar.svelte'
+  import Name from './lib/Name.svelte'
   import { voice } from './lib/voice.svelte'
   import Icon from './lib/Icon.svelte'
 
@@ -36,8 +38,8 @@
       <div class="tiles" class:compact={joined && voice.screens.length > 0}>
         {#each members as p (p.name)}
           <div class="tile" class:speaking={voice.speaking.includes(p.name)} style:--h={hue(p.name)}>
-            <span class="avatar" style:--size={joined && voice.screens.length ? '44px' : '80px'}>{p.name[0]}</span>
-            <span class="label">{p.name}</span>
+            <Avatar name={p.name} size={joined && voice.screens.length ? 44 : 80} />
+            <span class="label"><Name name={p.name} /></span>
           </div>
         {/each}
       </div>

@@ -12,7 +12,7 @@
   --muted: #949ba4;
   --faint: #80848e;
   --accent: #5865f2;
-  --accent-hover: #4752c4;
+  --accent-hover: color-mix(in srgb, var(--accent), #000 18%);
   --green: #23a55a;
   --red: #f23f43;
   --radius: 8px;
@@ -22,6 +22,100 @@
   line-height: 1.375;
   color: var(--text);
   background: var(--rail);
+}
+
+/* Repetido para a miniatura do tema escuro aparecer certa dentro dos outros temas. */
+[data-theme='escuro'] {
+  --rail: #1e1f22;
+  --sidebar: #2b2d31;
+  --chat: #313338;
+  --panel: #232428;
+  --input: #383a40;
+  --hover: #35373c;
+  --active: #404249;
+  --line: #3f4147;
+  --text: #dbdee1;
+  --strong: #f2f3f5;
+  --muted: #949ba4;
+  --faint: #80848e;
+  --accent: #5865f2;
+  --accent-hover: color-mix(in srgb, var(--accent), #000 18%);
+  color-scheme: dark;
+}
+
+[data-theme='meia-noite'] {
+  --rail: #000;
+  --sidebar: #0b0b0d;
+  --chat: #111113;
+  --panel: #08080a;
+  --input: #1c1c20;
+  --hover: #19191c;
+  --active: #26262b;
+  --line: #26262b;
+}
+
+[data-theme='claro'] {
+  --rail: #e3e5e8;
+  --sidebar: #f2f3f5;
+  --chat: #fff;
+  --panel: #ebedef;
+  --input: #ebedef;
+  --hover: #e8e9ec;
+  --active: #d7dade;
+  --line: #e1e2e4;
+  --text: #313338;
+  --strong: #060607;
+  --muted: #5c5e66;
+  --faint: #6d6f78;
+  color-scheme: light;
+}
+
+[data-theme='ameixa'] {
+  --rail: #170f22;
+  --sidebar: #221830;
+  --chat: #2a1f3b;
+  --panel: #1c1428;
+  --input: #3a2d50;
+  --hover: #322646;
+  --active: #3f3155;
+  --line: #3d3152;
+  --accent: #a26bff;
+}
+
+[data-theme='oceano'] {
+  --rail: #0b1822;
+  --sidebar: #11232f;
+  --chat: #152c3a;
+  --panel: #0e1d28;
+  --input: #1f3d4f;
+  --hover: #1a3443;
+  --active: #234354;
+  --line: #22404f;
+  --accent: #149eb3;
+}
+
+[data-theme='floresta'] {
+  --rail: #0f1812;
+  --sidebar: #16221a;
+  --chat: #1b2b20;
+  --panel: #121d16;
+  --input: #26392b;
+  --hover: #203126;
+  --active: #2a3f30;
+  --line: #2a3e2f;
+  --accent: #2f9e44;
+}
+
+[data-theme='brasa'] {
+  --rail: #1c1212;
+  --sidebar: #271919;
+  --chat: #301f1f;
+  --panel: #211515;
+  --input: #442b2b;
+  --hover: #392525;
+  --active: #482f2f;
+  --line: #483131;
+  --accent: #e8590c;
 }
 
 * {
@@ -134,7 +228,7 @@ input {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1a1b1e;
+  background: var(--rail);
   border-radius: 8px;
   border: 4px solid transparent;
   background-clip: padding-box;
@@ -142,4 +236,78 @@ input {
 
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  background: #000b;
+  animation: fade 0.15s ease-out;
+}
+
+.modal {
+  width: min(460px, calc(100% - 32px));
+  max-height: calc(100% - 64px);
+  overflow-y: auto;
+  padding: 24px;
+  border-radius: var(--radius);
+  background: var(--chat);
+  box-shadow: 0 8px 40px #0008;
+  animation: pop 0.18s ease-out;
+}
+
+.modal h2 {
+  margin: 0 0 8px;
+  font-size: 22px;
+  text-align: center;
+  color: var(--strong);
+}
+
+.modal .lead {
+  margin: 0 0 20px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.label {
+  display: block;
+  margin: 16px 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.btn.danger {
+  background: var(--red);
+}
+
+.btn.danger:hover {
+  background: color-mix(in srgb, var(--red), #000 18%);
+}
+
+.btn.ghost {
+  background: none;
+  color: var(--text);
+}
+
+.btn.ghost:hover {
+  background: none;
+  text-decoration: underline;
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes pop {
+  from {
+    transform: scale(0.96);
+    opacity: 0;
+  }
 }

@@ -1,33 +1,57 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
-  import { api, auth, hue, type Channel, type Message, type Presence } from './lib/api.svelte'
+  import { api, auth, loadPeople, mediaUrl, people, type Channel, type Guild, type Message, type Presence } from './lib/api.svelte'
   import { askPermission, ping, showNotification } from './lib/notify'
   import { settings } from './lib/settings.svelte'
   import { voice } from './lib/voice.svelte'
+  import Avatar from './lib/Avatar.svelte'
   import Icon from './lib/Icon.svelte'
+  import Name from './lib/Name.svelte'
+  import AddServer from './AddServer.svelte'
+  import ProfileCard from './ProfileCard.svelte'
+  import ServerSettings from './ServerSettings.svelte'
   import Settings from './Settings.svelte'
   import SourcePicker from './SourcePicker.svelte'
   import Stage from './Stage.svelte'
 
   const me = auth.session!.user
   const PAGE = 50
+  const SERVER_KEY = 'concord.server-id'
 
+  let guilds = $state<Guild[]>([])
+  let serverId = $state(Number(localStorage.getItem(SERVER_KEY)) || 0)
   let channels = $state<Channel[]>([])
+  let memberIds = $state<number[]>([])
   let currentId = $state(0)
   let messages = $state<Message[]>([])
   let hasMore = $state(false)
   let presence = $state<Presence[]>([])
   const unread = new SvelteSet<number>()
+  const unreadServers = new SvelteSet<number>()
   let draft = $state('')
   let toast = $state('')
   let creating = $state<Channel['kind'] | null>(null)
   let newName = $state('')
-  let showSettings = $state(false)
+  let modal = $state<'settings' | 'server' | 'add' | null>(null)
+  let menu = $state(false)
+  let card = $state<{ name: string; x: number; y: number } | null>(null)
   let showMembers = $state(true)
   let scroller = $state<HTMLElement>()
+  // Rótulo da call atual, que pode ser de outro grupo que não o aberto.
+  let voiceWhere = $state('')
+  let voiceServer = 0
 
+  const guild = $derived(guilds.find((g) => g.id === serverId))
+  const owner = $derived(guild?.owner === me.id)
   const current = $derived(channels.find((c) => c.id === currentId))
+  const online = $derived(new Set(presence.map((p) => p.name)))
+  const roster = $derived(
+    memberIds
+      .map((id) => Object.values(people).find((p) => p.id === id)?.name)
+      .filter((n): n is string => !!n)
+      .sort((a, b) => a.localeCompare(b)),
+  )
   const members = (id: number) => presence.filter((p) => p.voice === id)
 
   let ws: WebSocket | undefined
@@ -67,9 +91,28 @@
   }
 
   async function load() {
-    channels = await api<Channel[]>('/api/channels')
-    const target = current ?? channels.find((c) => c.kind === 'text')
-    if (target?.kind === 'text') await open(target)
+    const [list] = await Promise.all([api<Guild[]>('/api/servers'), loadPeople()])
+    guilds = list
+    const target = guilds.find((g) => g.id === serverId) ?? guilds[0]
+    // Depois de reconectar, recarrega o canal aberto para trazer o que chegou no meio tempo.
+    if (target) return openServer(target.id, currentId, true)
+    serverId = currentId = 0
+    channels = []
+  }
+
+  async function openServer(id: number, keep = 0, reload = false) {
+    if (id !== serverId) (currentId = 0), (messages = [])
+    serverId = id
+    localStorage.setItem(SERVER_KEY, String(id))
+    unreadServers.delete(id)
+    menu = false
+    const [chans, ids] = await Promise.all([api<Channel[]>(`/api/servers/${id}/channels`), api<number[]>(`/api/servers/${id}/members`)])
+    if (serverId !== id) return
+    channels = chans
+    memberIds = ids
+    const target = channels.find((c) => c.id === keep) ?? channels.find((c) => c.kind === 'text')
+    if (target && ((reload && target.kind === 'text') || target.id !== currentId)) await open(target)
+    else if (!target) currentId = 0
   }
 
   function connect(reconnecting: boolean) {
@@ -86,22 +129,37 @@
     }
   }
 
+  async function serverChanged(id: number) {
+    guilds = await api<Guild[]>('/api/servers')
+    await loadPeople()
+    if (!guilds.some((g) => g.id === id)) {
+      if (voiceServer === id) voice.leave()
+      if (id === serverId) await load()
+      return
+    }
+    const chans = id === serverId ? (await openServer(id, currentId), channels) : voiceServer === id ? await api<Channel[]>(`/api/servers/${id}/channels`) : null
+    if (chans && voiceServer === id && voice.channel && !chans.some((c) => c.id === voice.channel)) voice.leave()
+  }
+
   function handle(ev: { type: string; [k: string]: any }) {
     if (ev.type === 'presence') presence = ev.users
-    else if (ev.type === 'channel') channels.push(ev.channel)
+    else if (ev.type === 'server') serverChanged(ev.id).catch(notify)
+    else if (ev.type === 'profile') people[ev.user.name] = ev.user
     else if (ev.type === 'message') {
       const m: Message = ev.message
-      if (m.channel !== currentId) unread.add(m.channel)
+      if (ev.server !== serverId) unreadServers.add(ev.server)
+      else if (m.channel !== currentId) unread.add(m.channel)
       else if (!messages.length || m.id > messages[messages.length - 1].id) append(m)
-      if (m.author !== me.name && (m.channel !== currentId || !document.hasFocus())) announce(m)
+      if (m.author !== me.name && (m.channel !== currentId || !document.hasFocus())) announce(m, ev.server)
     }
   }
 
-  function announce(m: Message) {
+  function announce(m: Message, server: number) {
     ping()
     if (document.hasFocus()) return
     const channel = channels.find((c) => c.id === m.channel)
-    showNotification(`${m.author} em #${channel?.name ?? ''}`, m.body, () => channel && open(channel).catch(notify))
+    const where = channel ? `#${channel.name}` : (guilds.find((g) => g.id === server)?.name ?? '')
+    showNotification(`${m.author} em ${where}`, m.body, () => openServer(server, m.channel).catch(notify))
   }
 
   async function append(m: Message) {
@@ -117,6 +175,8 @@
     currentId = c.id
     unread.delete(c.id)
     if (c.kind === 'voice') {
+      voiceWhere = `${c.name} / ${guild?.name ?? ''}`
+      voiceServer = serverId
       voice.join(c.id).catch(notify)
       return
     }
@@ -171,21 +231,40 @@
   async function createChannel(e: SubmitEvent) {
     e.preventDefault()
     try {
-      await api('/api/channels', { method: 'POST', body: { name: newName, kind: creating } })
+      const c = await api<Channel>(`/api/servers/${serverId}/channels`, { method: 'POST', body: { name: newName, kind: creating } })
       creating = null
+      if (c.kind === 'text') {
+        channels.push(c)
+        await open(c)
+      }
     } catch (err) {
       notify(err)
     }
   }
 
   async function invite() {
+    menu = false
     try {
-      const { code } = await api<{ code: string }>('/api/invites', { method: 'POST' })
+      const { code } = await api<{ code: string }>(`/api/servers/${serverId}/invites`, { method: 'POST' })
       await navigator.clipboard.writeText(code)
-      toast = `Convite copiado: ${code}`
+      toast = `Convite para ${guild?.name} copiado: ${code}`
     } catch (err) {
       notify(err)
     }
+  }
+
+  async function leave() {
+    menu = false
+    if (!guild || !confirm(`Sair de ${guild.name}? Para voltar, só com convite novo.`)) return
+    await api(`/api/servers/${guild.id}/leave`, { method: 'POST' }).catch(notify)
+  }
+
+  function showCard(e: MouseEvent, name: string) {
+    e.stopPropagation()
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    // Abre ao lado do clique sem sair da janela; o cartão tem ~300x400.
+    const x = r.right + 316 < innerWidth ? r.right + 16 : Math.max(16, r.left - 316)
+    card = card?.name === name ? null : { name, x, y: Math.min(r.top, innerHeight - 420) }
   }
 
   const day = (ts: number) => new Date(ts * 1000).toDateString()
@@ -204,53 +283,94 @@
     if (d.toDateString() === yesterday.toDateString()) return `Ontem às ${clock(ts)}`
     return `${d.toLocaleDateString('pt-BR')} ${clock(ts)}`
   }
+
+  const initials = (name: string) =>
+    name
+      .split(/\s+/)
+      .slice(0, 3)
+      .map((w) => w[0])
+      .join('')
 </script>
 
+<svelte:window onclick={() => ((card = null), (menu = false))} onkeydown={(e) => e.key === 'Escape' && ((card = null), (menu = false))} />
+
 <div class="shell" class:no-members={!showMembers || current?.kind !== 'text'}>
-  <nav class="rail" aria-label="Servidores">
-    <div class="server active" title="Concord"><span>C</span></div>
+  <nav class="rail" aria-label="Grupos">
+    {#each guilds as g (g.id)}
+      <button class="server" class:active={g.id === serverId} class:unread={unreadServers.has(g.id)} aria-label={g.name} onclick={() => openServer(g.id).catch(notify)}>
+        {#if g.icon}<img src={mediaUrl(g.icon)} alt="" />{:else}<span>{initials(g.name)}</span>{/if}
+        <span class="tip">{g.name}</span>
+      </button>
+    {/each}
+    <hr />
+    <button class="server add" aria-label="Criar ou entrar em um grupo" onclick={() => (modal = 'add')}>
+      <Icon name="plus" size={24} />
+      <span class="tip">Criar ou entrar em um grupo</span>
+    </button>
   </nav>
 
   <aside class="sidebar">
-    <header class="server-name">
-      <span>Concord</span>
-      <button class="icon-btn" title="Gerar convite" onclick={invite}><Icon name="invite" size={18} /></button>
-    </header>
-
-    <div class="channels">
-      {#each [{ kind: 'text', label: 'Canais de texto' }, { kind: 'voice', label: 'Canais de voz' }] as const as section}
-        <div class="category">
-          <span>{section.label}</span>
-          <button title="Criar canal" onclick={() => toggleCreating(section.kind)}><Icon name="plus" size={16} /></button>
-        </div>
-        {#if creating === section.kind}
-          <form class="new" onsubmit={createChannel}>
-            <!-- svelte-ignore a11y_autofocus -->
-            <input bind:value={newName} placeholder="novo-canal" maxlength="32" autofocus onkeydown={(e) => e.key === 'Escape' && toggleCreating(section.kind)} />
-          </form>
+    {#if guild}
+      <header class="server-name">
+        <button class="menu-btn" aria-expanded={menu} onclick={(e) => (e.stopPropagation(), (menu = !menu))}>
+          <span>{guild.name}</span>
+          <Icon name={menu ? 'close' : 'chevron'} size={18} />
+        </button>
+        {#if menu}
+          <div class="menu" role="menu">
+            <button role="menuitem" class="accent" onclick={invite}>Convidar pessoas <Icon name="invite" size={18} /></button>
+            {#if owner}
+              <button role="menuitem" onclick={() => ((modal = 'server'), (menu = false))}>Configurações do grupo <Icon name="gear" size={18} /></button>
+            {:else}
+              <button role="menuitem" class="danger" onclick={leave}>Sair do grupo <Icon name="leave" size={18} /></button>
+            {/if}
+          </div>
         {/if}
-        {#each channels.filter((c) => c.kind === section.kind) as c (c.id)}
-          <button class="channel" class:active={c.id === currentId} class:unread={unread.has(c.id)} onclick={() => open(c).catch(notify)}>
-            <Icon name={c.kind === 'text' ? 'hash' : 'volume'} size={20} />
-            <span>{c.name}</span>
-          </button>
-          {#if c.kind === 'voice'}
-            {#each members(c.id) as p (p.name)}
-              <div class="voice-member" class:speaking={voice.speaking.includes(p.name)}>
-                <span class="avatar" style:--h={hue(p.name)} style:--size="24px">{p.name[0]}</span>
-                <span>{p.name}</span>
-              </div>
-            {/each}
+      </header>
+
+      <div class="channels">
+        {#each [{ kind: 'text', label: 'Canais de texto' }, { kind: 'voice', label: 'Canais de voz' }] as const as section}
+          <div class="category">
+            <span>{section.label}</span>
+            {#if owner}<button title="Criar canal" onclick={() => toggleCreating(section.kind)}><Icon name="plus" size={16} /></button>{/if}
+          </div>
+          {#if creating === section.kind}
+            <form class="new" onsubmit={createChannel}>
+              <!-- svelte-ignore a11y_autofocus -->
+              <input bind:value={newName} placeholder="novo-canal" maxlength="32" autofocus onkeydown={(e) => e.key === 'Escape' && toggleCreating(section.kind)} />
+            </form>
           {/if}
+          {#each channels.filter((c) => c.kind === section.kind) as c (c.id)}
+            <div class="channel-row">
+              <button class="channel" class:active={c.id === currentId} class:unread={unread.has(c.id)} onclick={() => open(c).catch(notify)}>
+                <Icon name={c.kind === 'text' ? 'hash' : 'volume'} size={20} />
+                <span>{c.name}</span>
+              </button>
+              {#if owner}<button class="edit" title="Editar canais" aria-label="Editar canais" onclick={() => (modal = 'server')}><Icon name="gear" size={14} /></button>{/if}
+            </div>
+            {#if c.kind === 'voice'}
+              {#each members(c.id) as p (p.name)}
+                <button class="voice-member" class:speaking={voice.speaking.includes(p.name)} onclick={(e) => showCard(e, p.name)}>
+                  <Avatar name={p.name} size={24} />
+                  <Name name={p.name} />
+                </button>
+              {/each}
+            {/if}
+          {/each}
         {/each}
-      {/each}
-    </div>
+      </div>
+    {:else}
+      <div class="no-server">
+        <p>Você ainda não está em nenhum grupo.</p>
+        <button class="btn" onclick={() => (modal = 'add')}>Criar ou entrar</button>
+      </div>
+    {/if}
 
     {#if voice.channel || voice.connecting}
       <div class="voice-panel">
         <div class="voice-status">
           <strong class:connecting={voice.connecting}>{voice.connecting ? 'Conectando…' : 'Voz conectada'}</strong>
-          <small>{channels.find((c) => c.id === voice.channel)?.name ?? ''} / Concord</small>
+          <small>{voiceWhere}</small>
         </div>
         <button class="icon-btn" class:on={voice.sharing} title={voice.sharing ? 'Parar transmissão' : 'Compartilhar tela'} onclick={() => voice.toggleScreen().catch(notify)}>
           <Icon name="screen" size={20} />
@@ -260,18 +380,20 @@
     {/if}
 
     <footer class="me">
-      <span class="avatar online" style:--h={hue(me.name)} style:--size="32px" style:--ring="var(--panel)">{me.name[0]}</span>
-      <div class="who">
-        <strong>{me.name}</strong>
-        <small>Online</small>
-      </div>
+      <button class="who" onclick={(e) => showCard(e, me.name)}>
+        <Avatar name={me.name} size={32} online ring="var(--panel)" />
+        <span>
+          <strong><Name name={me.name} /></strong>
+          <small>Online</small>
+        </span>
+      </button>
       <button class="icon-btn" class:off={voice.muted} title={voice.muted ? 'Ativar microfone' : 'Silenciar'} onclick={() => voice.toggleMute().catch(notify)}>
         <Icon name={voice.muted ? 'micOff' : 'mic'} size={20} />
       </button>
       <button class="icon-btn" class:off={voice.deafened} title={voice.deafened ? 'Ativar áudio' : 'Desativar áudio'} onclick={() => voice.toggleDeafen().catch(notify)}>
         <Icon name={voice.deafened ? 'headphonesOff' : 'headphones'} size={20} />
       </button>
-      <button class="icon-btn" title="Configurações" onclick={() => (showSettings = true)}><Icon name="gear" size={20} /></button>
+      <button class="icon-btn" title="Configurações" onclick={() => (modal = 'settings')}><Icon name="gear" size={20} /></button>
     </footer>
   </aside>
 
@@ -307,9 +429,12 @@
             </div>
           {:else}
             <div class="msg head">
-              <span class="avatar" style:--h={hue(m.author)}>{m.author[0]}</span>
+              <button class="pic" aria-label="Perfil de {m.author}" onclick={(e) => showCard(e, m.author)}><Avatar name={m.author} /></button>
               <div>
-                <div class="meta"><strong>{m.author}</strong><time>{when(m.createdAt)}</time></div>
+                <div class="meta">
+                  <button class="author" onclick={(e) => showCard(e, m.author)}><Name name={m.author} /></button>
+                  <time>{when(m.createdAt)}</time>
+                </div>
                 <p>{m.body}</p>
               </div>
             </div>
@@ -325,20 +450,38 @@
 
     {#if showMembers}
       <aside class="members">
-        <h3>Online · {presence.length}</h3>
-        {#each presence as p (p.name)}
-          <div class="member">
-            <span class="avatar online" style:--h={hue(p.name)} style:--size="32px">{p.name[0]}</span>
-            <span class="name">{p.name}</span>
-            {#if p.voice}<span class="in-voice" title="Em canal de voz"><Icon name="volume" size={16} /></span>{/if}
-          </div>
+        {#each [{ label: 'Online', list: roster.filter((n) => online.has(n)) }, { label: 'Offline', list: roster.filter((n) => !online.has(n)) }] as group (group.label)}
+          {#if group.list.length}
+            <h3>{group.label} · {group.list.length}</h3>
+            {#each group.list as name (name)}
+              <button class="member" class:away={group.label === 'Offline'} onclick={(e) => showCard(e, name)}>
+                <Avatar {name} size={32} online={online.has(name)} />
+                <span class="name"><Name {name} /></span>
+                {#if presence.find((p) => p.name === name)?.voice}<span class="in-voice" title="Em canal de voz"><Icon name="volume" size={16} /></span>{/if}
+                {#if guild?.owner === people[name]?.id}<span class="crown" title="Dono do grupo"><Icon name="crown" size={14} /></span>{/if}
+              </button>
+            {/each}
+          {/if}
         {/each}
       </aside>
     {/if}
+  {:else}
+    <main class="chat empty-chat">
+      <p>{guild ? 'Nenhum canal de texto por aqui.' : ''}</p>
+    </main>
+  {/if}
+
+  {#if card && people[card.name]}
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+    <div class="popout" style:left="{card.x}px" style:top="{card.y}px" onclick={(e) => e.stopPropagation()}>
+      <ProfileCard profile={people[card.name]} online={online.has(card.name)} />
+    </div>
   {/if}
 
   {#if toast}<div class="toast" role="status">{toast}</div>{/if}
-  {#if showSettings}<Settings onclose={() => (showSettings = false)} oninvite={invite} onerror={notify} />{/if}
+  {#if modal === 'settings'}<Settings onclose={() => (modal = null)} onerror={notify} />{/if}
+  {#if modal === 'server' && guild}<ServerSettings {guild} {channels} onclose={() => (modal = null)} onerror={notify} />{/if}
+  {#if modal === 'add'}<AddServer onclose={() => (modal = null)} ondone={(id) => ((modal = null), serverChanged(id).then(() => openServer(id)).catch(notify))} />{/if}
   {#if voice.picking}<SourcePicker onerror={notify} />{/if}
 </div>
 
@@ -368,20 +511,7 @@
     width: 48px;
     height: 48px;
     border-radius: 16px;
-    font-size: 20px;
     font-weight: 700;
-    color: #fff;
-    background: var(--accent);
-  }
-
-  .server.active::before {
-    content: '';
-    position: absolute;
-    left: -12px;
-    width: 4px;
-    height: 40px;
-    border-radius: 0 4px 4px 0;
-    background: #fff;
   }
 
   .sidebar {
@@ -490,6 +620,9 @@
   }
 
   .voice-member {
+    width: 100%;
+    border-radius: 4px;
+    text-align: left;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -498,11 +631,15 @@
     color: var(--muted);
   }
 
-  .voice-member .avatar {
+  .voice-member :global(.avatar) {
     transition: box-shadow 0.15s;
   }
 
-  .voice-member.speaking .avatar {
+  .voice-member:hover {
+    background: var(--hover);
+  }
+
+  .voice-member.speaking :global(.avatar) {
     box-shadow: 0 0 0 2px var(--sidebar), 0 0 0 4px var(--green);
   }
 
@@ -556,10 +693,24 @@
   .who {
     flex: 1;
     display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 4px;
+    margin-right: 4px;
+    border-radius: 4px;
+    text-align: left;
+    line-height: 1.2;
+  }
+
+  .who:hover {
+    background: var(--hover);
+  }
+
+  .who > span {
+    display: flex;
     flex-direction: column;
     min-width: 0;
-    margin-left: 8px;
-    line-height: 1.2;
   }
 
   .who strong {
@@ -664,7 +815,7 @@
   }
 
   .msg:hover {
-    background: #2e3035;
+    background: color-mix(in srgb, var(--chat), #000 6%);
   }
 
   .msg p {
@@ -681,7 +832,7 @@
     gap: 16px;
   }
 
-  .head .avatar {
+  .head .pic {
     margin-top: 2px;
   }
 
@@ -689,11 +840,6 @@
     display: flex;
     align-items: baseline;
     gap: 8px;
-  }
-
-  .meta strong {
-    font-weight: 500;
-    color: var(--strong);
   }
 
   .meta time {
@@ -792,8 +938,253 @@
     padding: 10px 16px;
     border-radius: var(--radius);
     color: var(--strong);
-    background: #111214;
+    background: var(--rail);
     box-shadow: 0 8px 24px #0008;
+  }
+
+  .rail {
+    gap: 8px;
+    overflow-y: auto;
+    padding-bottom: 12px;
+  }
+
+  .rail hr {
+    width: 32px;
+    margin: 0;
+    border: 0;
+    border-top: 2px solid var(--line);
+  }
+
+  .server {
+    border-radius: 50%;
+    background: var(--sidebar);
+    color: var(--strong);
+    font-size: 16px;
+    transition:
+      border-radius 0.2s,
+      background 0.2s;
+  }
+
+  .server img {
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    object-fit: cover;
+  }
+
+  .server:hover,
+  .server.active {
+    border-radius: 16px;
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .server::before {
+    content: '';
+    position: absolute;
+    left: -12px;
+    width: 4px;
+    height: 0;
+    border-radius: 0 4px 4px 0;
+    background: var(--strong);
+    transition: height 0.2s;
+  }
+
+  .server.unread::before {
+    height: 8px;
+  }
+
+  .server:hover::before {
+    height: 20px;
+  }
+
+  .server.active::before {
+    height: 40px;
+  }
+
+  .server.add {
+    color: var(--green);
+  }
+
+  .server.add:hover {
+    background: var(--green);
+    color: #fff;
+  }
+
+  .tip {
+    position: fixed;
+    left: 80px;
+    z-index: 30;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+    color: var(--strong);
+    background: var(--rail);
+    box-shadow: 0 4px 16px #0006;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateX(-4px);
+    transition:
+      opacity 0.1s,
+      transform 0.1s;
+  }
+
+  .server:hover .tip {
+    opacity: 1;
+    transform: none;
+  }
+
+  .server-name {
+    position: relative;
+    padding: 0;
+  }
+
+  .menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    height: 100%;
+    padding: 0 12px 0 16px;
+    font-weight: 600;
+    color: var(--strong);
+  }
+
+  .menu-btn span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .menu-btn:hover {
+    background: var(--hover);
+  }
+
+  .menu {
+    position: absolute;
+    top: 52px;
+    left: 10px;
+    right: 10px;
+    z-index: 5;
+    padding: 6px 8px;
+    border-radius: var(--radius);
+    background: var(--rail);
+    box-shadow: 0 8px 24px #0007;
+    animation: pop 0.12s ease-out;
+  }
+
+  .menu button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 8px;
+    border-radius: 4px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text);
+  }
+
+  .menu button:hover {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .menu .accent {
+    color: color-mix(in srgb, var(--accent), #fff 35%);
+  }
+
+  .menu .danger {
+    color: var(--red);
+  }
+
+  .menu .danger:hover {
+    background: var(--red);
+  }
+
+  .channel-row {
+    position: relative;
+  }
+
+  .edit {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    display: grid;
+    padding: 3px;
+    color: var(--muted);
+    opacity: 0;
+    transform: translateY(-50%);
+  }
+
+  .channel-row:hover .edit,
+  .edit:focus-visible {
+    opacity: 1;
+  }
+
+  .edit:hover {
+    color: var(--strong);
+  }
+
+  .no-server {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 16px;
+    text-align: center;
+    color: var(--muted);
+  }
+
+  .pic,
+  .author {
+    display: block;
+    height: max-content;
+    border-radius: 50%;
+  }
+
+  .author {
+    border-radius: 0;
+    font-weight: 500;
+    color: var(--strong);
+  }
+
+  .author:hover {
+    text-decoration: underline;
+  }
+
+  .member {
+    width: 100%;
+    text-align: left;
+  }
+
+  .member.away {
+    opacity: 0.45;
+  }
+
+  .member.away:hover {
+    opacity: 1;
+  }
+
+  .crown {
+    display: grid;
+    color: #f0b232;
+  }
+
+  .popout {
+    position: fixed;
+    z-index: 15;
+    animation: pop 0.15s ease-out;
+  }
+
+  .empty-chat {
+    display: grid;
+    place-items: center;
+    color: var(--muted);
   }
 
   @media (max-width: 960px) {

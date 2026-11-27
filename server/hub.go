@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"slices"
 	"sort"
 	"sync"
 )
@@ -52,15 +53,27 @@ func (h *hub) setVoice(c *client, channel int64) {
 }
 
 func (h *hub) broadcast(event any) {
+	h.sendTo(nil, event)
+}
+
+// sendTo entrega só para os usuários listados; nil entrega para todos.
+func (h *hub) sendTo(users []int64, event any) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.broadcastLocked(event)
+	h.sendLocked(users, event)
 }
 
 func (h *hub) broadcastLocked(event any) {
+	h.sendLocked(nil, event)
+}
+
+func (h *hub) sendLocked(users []int64, event any) {
 	b, _ := json.Marshal(event)
 	dropped := false
 	for c := range h.clients {
+		if users != nil && !slices.Contains(users, c.user.ID) {
+			continue
+		}
 		select {
 		case c.send <- b:
 		default:
