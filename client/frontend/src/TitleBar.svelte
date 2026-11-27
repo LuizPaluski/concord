@@ -1,21 +1,17 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Quit, WindowIsMaximised, WindowMinimise, WindowToggleMaximise } from '../wailsjs/runtime/runtime'
+  import { desktop } from './lib/desktop'
 
+  const win = desktop!
   let maximised = $state(false)
 
   onMount(() => {
-    const sync = () => WindowIsMaximised().then((m) => (maximised = m))
-    sync()
-    window.addEventListener('resize', sync)
-    return () => window.removeEventListener('resize', sync)
+    win.isMaximized().then((m) => (maximised = m))
+    win.onMaximized((m) => (maximised = m))
   })
 </script>
 
-<!-- O Wails arrasta a janela por --wails-draggable, mas não maximiza no duplo clique.
-     O duplo clique só repete o botão Maximizar, que segue acessível pelo teclado. -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<header class="titlebar" ondblclick={(e) => !(e.target as Element).closest('button') && WindowToggleMaximise()}>
+<header class="titlebar">
   <div class="title">
     <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
       <rect width="24" height="24" rx="5.3" fill="#5865f2" />
@@ -24,25 +20,26 @@
     Concord
   </div>
   <div class="controls">
-    <button title="Minimizar" aria-label="Minimizar" onclick={WindowMinimise}>
+    <button title="Minimizar" aria-label="Minimizar" onclick={win.minimize}>
       <svg viewBox="0 0 10 10" width="10" height="10"><path d="M0 5h10" stroke="currentColor" /></svg>
     </button>
-    <button title={maximised ? 'Restaurar' : 'Maximizar'} aria-label={maximised ? 'Restaurar' : 'Maximizar'} onclick={WindowToggleMaximise}>
+    <button title={maximised ? 'Restaurar' : 'Maximizar'} aria-label={maximised ? 'Restaurar' : 'Maximizar'} onclick={win.toggleMaximize}>
       {#if maximised}
         <svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor"><path d="M2.5 2.5V.5h7v7h-2M.5 2.5h7v7h-7z" /></svg>
       {:else}
         <svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor"><rect x=".5" y=".5" width="9" height="9" /></svg>
       {/if}
     </button>
-    <button class="close" title="Fechar" aria-label="Fechar" onclick={Quit}>
+    <button class="close" title="Fechar" aria-label="Fechar" onclick={win.close}>
       <svg viewBox="0 0 10 10" width="10" height="10"><path d="M0 0l10 10M10 0 0 10" stroke="currentColor" stroke-width="1.1" /></svg>
     </button>
   </div>
 </header>
 
 <style>
+  /* A área de arraste nativa já move a janela e maximiza no duplo clique. */
   .titlebar {
-    --wails-draggable: drag;
+    -webkit-app-region: drag;
     position: relative;
     display: flex;
     align-items: center;
@@ -62,7 +59,7 @@
   }
 
   .controls {
-    --wails-draggable: no-drag;
+    -webkit-app-region: no-drag;
     position: absolute;
     top: 0;
     right: 0;

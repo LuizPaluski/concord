@@ -1,18 +1,17 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { CheckUpdate, Install } from '../wailsjs/go/main/App'
-  import type { main } from '../wailsjs/go/models'
+  import { desktop } from './lib/desktop'
 
-  let update = $state<main.Update | null>(null)
+  let update = $state<{ version: string } | null>(null)
   let dismissed = $state(false)
   let installing = $state(false)
   let error = $state('')
 
   onMount(() => {
-    // No navegador (testes, vite dev) não existe o lado Go do app.
-    if (!('go' in window)) return
+    if (!desktop) return
+    const app = desktop
     // Sem internet ou com a API do GitHub limitada, tenta de novo na próxima rodada.
-    const check = () => CheckUpdate().then((u) => (update = u), () => {})
+    const check = () => app.checkUpdate().then((u) => (update = u), () => {})
     check()
     const timer = setInterval(check, 30 * 60 * 1000)
     return () => clearInterval(timer)
@@ -22,7 +21,7 @@
     installing = true
     error = ''
     try {
-      await Install(update!)
+      await desktop!.installUpdate()
     } catch (err) {
       error = String(err)
       installing = false

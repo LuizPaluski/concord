@@ -1,6 +1,7 @@
+node_modules
+release
 build/bin
 frontend/dist
 frontend/node_modules
-frontend/wailsjs
-frontend/package.json.md5
-build/windows/installer/tmp
+build/concord-audio.exe
+*.local

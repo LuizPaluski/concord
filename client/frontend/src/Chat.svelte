@@ -7,6 +7,7 @@
   import { voice } from './lib/voice.svelte'
   import Icon from './lib/Icon.svelte'
   import Settings from './Settings.svelte'
+  import SourcePicker from './SourcePicker.svelte'
   import Stage from './Stage.svelte'
 
   const me = auth.session!.user
@@ -47,6 +48,12 @@
   $effect(() => {
     const channel = voice.channel
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'voice', channel }))
+  })
+
+  $effect(() => {
+    if (!voice.notice) return
+    toast = voice.notice
+    voice.notice = ''
   })
 
   $effect(() => {
@@ -332,6 +339,7 @@
 
   {#if toast}<div class="toast" role="status">{toast}</div>{/if}
   {#if showSettings}<Settings onclose={() => (showSettings = false)} oninvite={invite} onerror={notify} />{/if}
+  {#if voice.picking}<SourcePicker onerror={notify} />{/if}
 </div>
 
 <style>

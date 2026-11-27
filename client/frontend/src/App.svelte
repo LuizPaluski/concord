@@ -1,15 +1,13 @@
 <script lang="ts">
   import { auth } from './lib/api.svelte'
+  import { desktop } from './lib/desktop'
   import Chat from './Chat.svelte'
   import Login from './Login.svelte'
   import TitleBar from './TitleBar.svelte'
   import Updater from './Updater.svelte'
-
-  // No navegador (testes, vite dev) não existe janela do Wails para controlar.
-  const desktop = 'go' in window
 </script>
 
-<div class="app" class:desktop>
+<div class="app" class:desktop={!!desktop}>
   {#if desktop}<TitleBar />{/if}
   <div class="view">
     {#if auth.session}

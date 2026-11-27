@@ -2,7 +2,8 @@
   import { enter } from './lib/api.svelte'
 
   let mode = $state<'login' | 'register'>('login')
-  let server = $state(localStorage.getItem('concord.server') ?? '')
+  // O servidor padrão vem do build de release, não do código público.
+  let server = $state(localStorage.getItem('concord.server') ?? import.meta.env.VITE_DEFAULT_SERVER ?? '')
   let name = $state('')
   let password = $state('')
   let invite = $state('')

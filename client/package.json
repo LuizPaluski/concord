@@ -1,0 +1,57 @@
+{
+  "name": "concord",
+  "productName": "Concord",
+  "version": "0.5.0",
+  "description": "Chat de texto, voz e tela entre amigos",
+  "author": "LuizPaluski",
+  "private": true,
+  "main": "electron/main.js",
+  "scripts": {
+    "audio": "go build -C audio -ldflags=-s -o ../build/concord-audio.exe .",
+    "ui": "npm --prefix frontend run build",
+    "start": "npm run audio && npm run ui && electron .",
+    "dist": "npm run audio && npm run ui && electron-builder --win --publish never"
+  },
+  "build": {
+    "appId": "com.luizpaluski.concord",
+    "productName": "Concord",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**",
+      "frontend/dist/**",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/appicon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "artifactName": "Concord-Instalador.${ext}",
+      "shortcutName": "Concord",
+      "include": "build/installer.nsh"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "LuizPaluski",
+      "repo": "concord"
+    },
+    "extraResources": [
+      {
+        "from": "build/concord-audio.exe",
+        "to": "concord-audio.exe"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
+  },
+  "devDependencies": {
+    "electron": "^45.5.0",
+    "electron-builder": "^26.18.0"
+  }
+}

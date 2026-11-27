@@ -1,5 +1,6 @@
-import { Room, RoomEvent, Track } from 'livekit-client'
+import { AudioPresets, Room, RoomEvent, Track } from 'livekit-client'
 import { api } from './api.svelte'
+import { desktop } from './desktop'
 import { noiseFilter } from './noise'
 import { callSound } from './notify'
 import { RESOLUTIONS, settings } from './settings.svelte'
@@ -17,6 +18,10 @@ class Voice {
   muted = $state(false)
   deafened = $state(false)
   sharing = $state(false)
+  picking = $state(false)
+  notice = $state('')
+  #source = ''
+  #screenAudio: { ctx: AudioContext; track: MediaStreamTrack } | null = null
   noiseError = $state('')
   speaking = $state<string[]>([])
   screens = $state.raw<Screen[]>([])
@@ -55,7 +60,11 @@ class Voice {
         if (this.#room === room) callSound('leave')
       })
       .on(RoomEvent.LocalTrackPublished, () => this.#refresh())
-      .on(RoomEvent.LocalTrackUnpublished, () => this.#refresh())
+      .on(RoomEvent.LocalTrackUnpublished, (pub) => {
+        // Janela compartilhada fechou: o vídeo sai sozinho, o som nativo não.
+        if (pub.source === Track.Source.ScreenShare) this.#stopScreenAudio().catch(() => {})
+        this.#refresh()
+      })
       .on(RoomEvent.ActiveSpeakersChanged, (ps) => {
         if (this.#room === room) this.speaking = ps.map((p) => p.identity)
       })
@@ -104,6 +113,79 @@ class Voice {
   async toggleScreen() {
     const lp = this.#room?.localParticipant
     if (!lp) return
+    if (this.sharing) {
+      await this.#stopScreenAudio()
+      await lp.setScreenShareEnabled(false)
+      this.#refresh()
+      return
+    }
+    // No app, o seletor é nosso (Electron); no navegador, fica o do Chromium.
+    if (desktop) this.picking = true
+    else await this.#startScreen(settings.screenAudio)
+  }
+
+  async shareSource(id: string) {
+    this.picking = false
+    this.#source = id
+    // Sem loopback por processo (Windows 10 antigo), o som vai pelo próprio getDisplayMedia.
+    const native = await desktop!.nativeScreenAudio()
+    await this.#startScreen(settings.screenAudio && !native)
+    if (native && this.sharing && settings.screenAudio) {
+      await this.#startScreenAudio().catch((err) => {
+        this.notice = `Transmitindo sem som: ${(err as Error).message}`
+        return this.#stopScreenAudio()
+      })
+    }
+  }
+
+  // Som da tela capturado pelo concord-audio (nativo), publicado como trilha à parte.
+  async #startScreenAudio() {
+    const ctx = new AudioContext({ sampleRate: 48000 })
+    const output = ctx.createMediaStreamDestination()
+    const audio = { ctx, track: output.stream.getAudioTracks()[0] }
+    this.#screenAudio = audio
+    await ctx.audioWorklet.addModule('/pcm-worklet.js')
+    const player = new AudioWorkletNode(ctx, 'pcm-player', { outputChannelCount: [2] })
+    player.connect(output)
+    await desktop!.startScreenAudio(
+      this.#source,
+      (pcm) => {
+        const copy = pcm.slice()
+        player.port.postMessage(copy.buffer, [copy.buffer])
+      },
+      (message) => {
+        this.notice = `O som da tela parou: ${message}`
+        this.#stopScreenAudio().catch(() => {})
+      },
+    )
+    const lp = this.#room!.localParticipant
+    await lp.publishTrack(audio.track, {
+      source: Track.Source.ScreenShareAudio,
+      name: 'screen_share_audio',
+      audioPreset: AudioPresets.musicHighQualityStereo,
+      forceStereo: true,
+      dtx: false,
+      red: false,
+    })
+    // Se o áudio caiu enquanto publicava, a trilha subiu já morta e precisa sair.
+    if (this.#screenAudio !== audio) await lp.unpublishTrack(audio.track)
+  }
+
+  async #stopScreenAudio() {
+    const audio = this.#screenAudio
+    if (!audio) return
+    this.#screenAudio = null
+    await desktop!.stopScreenAudio()
+    await this.#room?.localParticipant.unpublishTrack(audio.track)
+    audio.track.stop()
+    await audio.ctx.close()
+  }
+
+  async #startScreen(audio: boolean) {
+    const lp = this.#room?.localParticipant
+    if (!lp) return
+    // O processo principal consome a fonte a cada pedido, então ela vai de novo em cada tentativa.
+    if (desktop) await desktop.chooseScreen(this.#source)
     const [width, height] = RESOLUTIONS[settings.screenRes]
     const fps = settings.screenFps
     // A 60 fps é jogo ou vídeo: vale perder nitidez para não engasgar. Abaixo disso,
@@ -112,9 +194,9 @@ class Voice {
     const maxBitrate = Math.min(MAX_BITRATE, Math.round(width * height * fps * BITS_PER_PIXEL))
     try {
       await lp.setScreenShareEnabled(
-        !this.sharing,
+        true,
         {
-          audio: settings.screenAudio,
+          audio,
           systemAudio: 'include',
           resolution: { width, height, frameRate: fps },
           contentHint: motion ? 'motion' : 'detail',
@@ -130,8 +212,17 @@ class Voice {
         },
       )
     } catch (err) {
-      // Fechar o seletor de tela sem escolher nada não é erro.
-      if ((err as Error).name !== 'NotAllowedError') throw err
+      const e = err as Error
+      // O som do sistema às vezes não abre no Windows ("Could not start audio source").
+      // A tela sem som é melhor que nenhuma transmissão.
+      if (audio && (e.name === 'NotReadableError' || /audio source/i.test(e.message))) {
+        await this.#startScreen(false)
+        this.notice = 'Transmitindo sem som: o Windows não liberou o áudio do sistema.'
+        return
+      }
+      // No navegador, NotAllowedError é só o seletor do Chromium fechado sem escolha.
+      // No app o seletor é nosso, então esse erro é falha de verdade e precisa aparecer.
+      if (desktop || e.name !== 'NotAllowedError') throw err
     }
     this.#refresh()
   }
@@ -171,9 +262,11 @@ class Voice {
   }
 
   #reset() {
+    this.#stopScreenAudio().catch(() => {})
     this.#room = null
     this.channel = 0
     this.sharing = false
+    this.picking = false
     this.speaking = []
     this.screens = []
     this.#audio.replaceChildren()
