@@ -79,7 +79,7 @@
   })
 
   // O servidor repassa a sala de voz e o estado de cada um para a lista lateral.
-  const voiceState = () => JSON.stringify({ type: 'voice', channel: voice.channel, muted: voice.muted || voice.deafened, deafened: voice.deafened, sharing: voice.sharing })
+  const voiceState = () => JSON.stringify({ type: 'voice', channel: voice.channel || voice.target, muted: voice.muted || voice.deafened, deafened: voice.deafened, sharing: voice.sharing })
   $effect(() => {
     const state = voiceState()
     if (ws?.readyState === WebSocket.OPEN) ws.send(state)
@@ -132,6 +132,8 @@
     if (serverId !== id) return
     channels = chans
     memberIds = ids
+    const firstVoice = chans.find((c) => c.kind === 'voice')
+    if (firstVoice) voice.prefetch(firstVoice.id).catch(() => {})
     const target = channels.find((c) => c.id === keep) ?? channels.find((c) => c.kind === 'text')
     if (target && ((reload && target.kind === 'text') || target.id !== currentId)) await open(target)
     else if (!target) currentId = 0
@@ -408,7 +410,13 @@
           {/if}
           {#each channels.filter((c) => c.kind === section.kind) as c (c.id)}
             <div class="channel-row">
-              <button class="channel" class:active={c.id === currentId} class:unread={unread.has(c.id)} onclick={() => open(c).catch(notify)}>
+              <button
+                class="channel"
+                class:active={c.id === currentId}
+                class:unread={unread.has(c.id)}
+                onclick={() => open(c).catch(notify)}
+                onmouseenter={() => c.kind === 'voice' && voice.prefetch(c.id).catch(() => {})}
+              >
                 <Icon name={c.kind === 'text' ? 'hash' : 'volume'} size={20} />
                 <span>{c.name}</span>
               </button>

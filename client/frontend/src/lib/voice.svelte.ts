@@ -11,6 +11,10 @@ const BITS_PER_PIXEL = 0.07
 const MAX_BITRATE = 15_000_000
 
 export type Screen = { id: string; name: string; track: Track }
+type Grant = { url: string; token: string; at: number }
+
+// O token vale 6 h no servidor; reaproveitar por alguns minutos poupa uma ida à VPS no clique.
+const GRANT_TTL = 5 * 60 * 1000
 
 // Call em que eu estava, para voltar a ela quando o app abrir de novo.
 const LAST_CALL = 'concord.call'
@@ -19,6 +23,10 @@ export const lastCall = (): LastCall | null => JSON.parse(localStorage.getItem(L
 
 class Voice {
   channel = $state(0)
+  // Canal em que estou entrando: já aparece na lista dos outros antes de conectar.
+  target = $state(0)
+  #grants = new Map<number, Grant>()
+  #warmed = false
   connecting = $state(false)
   muted = $state(false)
   deafened = $state(false)
@@ -39,10 +47,24 @@ class Voice {
     document.body.append(this.#audio)
   }
 
+  // Busca o token antes do clique e, na primeira vez, já abre DNS e TLS com o servidor de voz.
+  async prefetch(channel: number) {
+    const cached = this.#grants.get(channel)
+    if (cached && Date.now() - cached.at < GRANT_TTL) return cached
+    const grant = { ...(await api<{ url: string; token: string }>(`/api/channels/${channel}/voice`)), at: Date.now() }
+    this.#grants.set(channel, grant)
+    if (!this.#warmed) {
+      this.#warmed = true
+      new Room().prepareConnection(grant.url, grant.token).catch(() => {})
+    }
+    return grant
+  }
+
   async join(channel: number, where?: LastCall) {
     if (this.channel === channel || this.connecting) return
     await this.leave()
     this.connecting = true
+    this.target = channel
     const room = new Room({ adaptiveStream: true, dynacast: true })
     this.#room = room
     room
@@ -83,18 +105,21 @@ class Voice {
         this.#reset()
       })
     try {
-      const { url, token } = await api<{ url: string; token: string }>(`/api/channels/${channel}/voice`)
+      const { url, token } = await this.prefetch(channel)
       await room.connect(url, token)
       this.channel = channel
       if (where) localStorage.setItem(LAST_CALL, JSON.stringify(where))
       callSound('join')
-      await this.#applyMic()
+      // O microfone (e o filtro de ruído) liga em paralelo: ouvir os outros não espera por ele.
+      this.#applyMic().catch((err) => (this.notice = `Microfone não ligou: ${(err as Error).message}`))
     } catch (err) {
+      this.#grants.delete(channel)
       await room.disconnect()
       if (this.#room === room) this.#reset()
       throw err
     } finally {
       this.connecting = false
+      this.target = 0
     }
   }
 
