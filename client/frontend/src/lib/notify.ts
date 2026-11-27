@@ -2,21 +2,31 @@ import { settings } from './settings.svelte'
 
 let ctx: AudioContext | undefined
 
-export function ping() {
-  if (!settings.sound) return
+// Toca notas curtas: [frequência em Hz, início em s, frequência final opcional para deslizar].
+function tone(notes: [number, number, number?][], volume = 0.12) {
   ctx ??= new AudioContext()
   ctx.resume()
   const t = ctx.currentTime
-  const osc = ctx.createOscillator()
-  const gain = ctx.createGain()
-  osc.frequency.setValueAtTime(880, t)
-  osc.frequency.exponentialRampToValueAtTime(1320, t + 0.08)
-  gain.gain.setValueAtTime(0.0001, t)
-  gain.gain.exponentialRampToValueAtTime(0.12, t + 0.01)
-  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.25)
-  osc.connect(gain).connect(ctx.destination)
-  osc.start(t)
-  osc.stop(t + 0.3)
+  for (const [freq, start, glide] of notes) {
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.frequency.setValueAtTime(freq, t + start)
+    if (glide) osc.frequency.exponentialRampToValueAtTime(glide, t + start + 0.08)
+    gain.gain.setValueAtTime(0.0001, t + start)
+    gain.gain.exponentialRampToValueAtTime(volume, t + start + 0.01)
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + start + 0.18)
+    osc.connect(gain).connect(ctx.destination)
+    osc.start(t + start)
+    osc.stop(t + start + 0.2)
+  }
+}
+
+export function ping() {
+  if (settings.sound) tone([[880, 0, 1320]])
+}
+
+export function callSound(kind: 'join' | 'leave') {
+  if (settings.callSound) tone(kind === 'join' ? [[523, 0], [784, 0.09]] : [[784, 0], [523, 0.09]], 0.1)
 }
 
 export function showNotification(title: string, body: string, onclick: () => void) {
