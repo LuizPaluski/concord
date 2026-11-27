@@ -12,9 +12,20 @@
     const app = desktop
     // Sem internet ou com a API do GitHub limitada, tenta de novo na próxima rodada.
     const check = () => app.checkUpdate().then((u) => (update = u), () => {})
+    // O servidor avisa na hora que sai release; checa de novo um minuto depois
+    // porque o GitHub às vezes demora para apontar "latest" para a versão nova.
+    const onRelease = () => {
+      dismissed = false
+      check()
+      setTimeout(check, 60 * 1000)
+    }
     check()
     const timer = setInterval(check, 30 * 60 * 1000)
-    return () => clearInterval(timer)
+    window.addEventListener('concord:release', onRelease)
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener('concord:release', onRelease)
+    }
   })
 
   async function install() {

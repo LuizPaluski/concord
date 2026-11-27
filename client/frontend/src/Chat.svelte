@@ -170,6 +170,7 @@
     else if (ev.type === 'server') serverChanged(ev.id).catch(notify)
     else if (ev.type === 'profile') people[ev.user.name] = ev.user
     else if (ev.type === 'shot' && !voice.deafened) gunshot()
+    else if (ev.type === 'release') window.dispatchEvent(new Event('concord:release'))
     else if (ev.type === 'message') {
       const m: Message = ev.message
       if (ev.server !== serverId) unreadServers.add(ev.server)

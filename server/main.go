@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 func main() {
@@ -33,6 +34,7 @@ func main() {
 	if code != "" {
 		log.Printf("nenhum usuário cadastrado, convite inicial: %s", code)
 	}
+	go s.watchReleases(time.Minute)
 	addr := env("CONCORD_ADDR", ":8080")
 	log.Printf("concord ouvindo em %s", addr)
 	log.Fatal(http.ListenAndServe(addr, s.routes()))
