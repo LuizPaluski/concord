@@ -19,6 +19,8 @@
   const joined = $derived(voice.channel === channel.id)
   const watching = $derived(joined && voice.screens.length > 0)
   const hidden = $derived(watching && settings.hideTiles)
+  // Foco só faz sentido com duas telas ou mais; se a pessoa parar de transmitir, volta para todas.
+  const main = $derived(voice.screens.length > 1 ? voice.screens.find((s) => s.id === voice.focus) : undefined)
 
   function attach(el: HTMLVideoElement, track: Track) {
     track.attach(el)
@@ -34,14 +36,42 @@
 
   <div class="content">
     {#if joined && voice.screens.length}
-      <div class="screens" class:single={voice.screens.length === 1} class:full={hidden}>
-        {#each voice.screens as s (s.track.sid)}
+      {#if main}
+        <div class="screens single" class:full={hidden}>
           <figure>
-            <video use:attach={s.track} autoplay playsinline muted ondblclick={(e) => e.currentTarget.requestFullscreen()}></video>
-            <figcaption><Icon name="screen" size={14} /> {s.name}</figcaption>
+            <button class="all" onclick={() => (voice.focus = '')}>Ver todas as telas</button>
+            {#key main.track.sid}
+              <video use:attach={main.track} autoplay playsinline muted ondblclick={(e) => e.currentTarget.requestFullscreen()}></video>
+            {/key}
+            <figcaption><Icon name="screen" size={14} /> {main.name}</figcaption>
           </figure>
-        {/each}
-      </div>
+        </div>
+        <div class="thumbs">
+          {#each voice.screens.filter((s) => s !== main) as s (s.track.sid)}
+            <button class="thumb" title="Focar em {s.name}" onclick={() => (voice.focus = s.id)}>
+              <video use:attach={s.track} autoplay playsinline muted></video>
+              <span>{s.name}</span>
+            </button>
+          {/each}
+        </div>
+      {:else}
+        <div class="screens" class:single={voice.screens.length === 1} class:full={hidden}>
+          {#each voice.screens as s (s.track.sid)}
+            <figure class:pickable={voice.screens.length > 1}>
+              <video
+                use:attach={s.track}
+                autoplay
+                playsinline
+                muted
+                title={voice.screens.length > 1 ? 'Clique para focar' : undefined}
+                onclick={() => voice.screens.length > 1 && (voice.focus = s.id)}
+                ondblclick={(e) => e.currentTarget.requestFullscreen()}
+              ></video>
+              <figcaption><Icon name="screen" size={14} /> {s.name}</figcaption>
+            </figure>
+          {/each}
+        </div>
+      {/if}
     {/if}
 
     {#if watching}
@@ -155,6 +185,66 @@
     border-radius: 4px;
     font-size: 13px;
     font-weight: 500;
+    color: var(--strong);
+    background: #000b;
+  }
+
+  .pickable video {
+    cursor: pointer;
+  }
+
+  .pickable:hover {
+    outline: 2px solid var(--accent);
+  }
+
+  .all {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--strong);
+    background: #000b;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+
+  figure:hover .all,
+  .all:focus-visible {
+    opacity: 1;
+  }
+
+  .thumbs {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .thumb {
+    position: relative;
+    width: 200px;
+    overflow: hidden;
+    border-radius: var(--radius);
+    background: #111214;
+  }
+
+  .thumb:hover {
+    outline: 2px solid var(--accent);
+  }
+
+  .thumb video {
+    max-height: 112px;
+  }
+
+  .thumb span {
+    position: absolute;
+    left: 6px;
+    bottom: 6px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
     color: var(--strong);
     background: #000b;
   }

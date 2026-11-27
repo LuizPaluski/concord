@@ -39,6 +39,8 @@ class Voice {
   noiseError = $state('')
   speaking = $state<string[]>([])
   screens = $state.raw<Screen[]>([])
+  // Quem está em destaque quando há mais de uma tela; vazio mostra todas lado a lado.
+  focus = $state('')
   #room: Room | null = null
   #audio = document.createElement('div')
 

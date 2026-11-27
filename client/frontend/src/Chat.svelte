@@ -432,7 +432,7 @@
                     <VoiceStatus {p} />
                   </button>
                   {#if preview?.name === p.name && p.sharing}
-                    <StreamPreview {...preview} onwatch={() => ((preview = null), open(c).catch(notify))} />
+                    <StreamPreview {...preview} onwatch={() => ((preview = null), (voice.focus = p.name), open(c).catch(notify))} />
                   {/if}
                 </div>
               {/each}
