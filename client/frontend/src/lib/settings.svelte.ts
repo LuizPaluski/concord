@@ -23,6 +23,7 @@ type Settings = {
   theme: keyof typeof THEMES
   // Ajustes que cada um faz só para si sobre o áudio dos outros, por nome.
   listen: Record<string, Listen>
+  hideTiles: boolean
 }
 
 export type Listen = { volume: number; muted: boolean; screenVolume: number; screenMuted: boolean }
@@ -38,6 +39,7 @@ export const settings = $state<Settings>({
   screenAudio: true,
   theme: 'escuro',
   listen: {},
+  hideTiles: false,
   ...JSON.parse(localStorage.getItem(KEY) ?? '{}'),
 })
 

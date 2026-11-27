@@ -4,6 +4,7 @@
   import Avatar from './lib/Avatar.svelte'
   import Name from './lib/Name.svelte'
   import VoiceStatus from './lib/VoiceStatus.svelte'
+  import { settings } from './lib/settings.svelte'
   import { voice } from './lib/voice.svelte'
   import Icon from './lib/Icon.svelte'
 
@@ -16,6 +17,8 @@
   }: { channel: Channel; members: Presence[]; onerror: (err: unknown) => void; onmenu: (e: MouseEvent, name: string) => void; onjoin: () => void } = $props()
 
   const joined = $derived(voice.channel === channel.id)
+  const watching = $derived(joined && voice.screens.length > 0)
+  const hidden = $derived(watching && settings.hideTiles)
 
   function attach(el: HTMLVideoElement, track: Track) {
     track.attach(el)
@@ -31,7 +34,7 @@
 
   <div class="content">
     {#if joined && voice.screens.length}
-      <div class="screens" class:single={voice.screens.length === 1}>
+      <div class="screens" class:single={voice.screens.length === 1} class:full={hidden}>
         {#each voice.screens as s (s.track.sid)}
           <figure>
             <video use:attach={s.track} autoplay playsinline muted ondblclick={(e) => e.currentTarget.requestFullscreen()}></video>
@@ -41,7 +44,14 @@
       </div>
     {/if}
 
-    {#if members.length}
+    {#if watching}
+      <button class="tab" onclick={() => (settings.hideTiles = !settings.hideTiles)}>
+        <span class="chev" class:up={hidden}><Icon name="chevron" size={16} /></span>
+        {hidden ? 'Mostrar participantes' : 'Ocultar participantes'}
+      </button>
+    {/if}
+
+    {#if members.length && !hidden}
       <div class="tiles" class:compact={joined && voice.screens.length > 0}>
         {#each members as p (p.name)}
           <div class="tile" role="listitem" class:speaking={voice.speaking.includes(p.name)} style:--h={hue(p.name)} oncontextmenu={(e) => onmenu(e, p.name)}>
@@ -50,7 +60,7 @@
           </div>
         {/each}
       </div>
-    {:else}
+    {:else if !members.length}
       <div class="empty">
         <h2>{channel.name}</h2>
         <p>Ninguém por aqui ainda.</p>
@@ -147,6 +157,39 @@
     font-weight: 500;
     color: var(--strong);
     background: #000b;
+  }
+
+  .screens.full video {
+    max-height: calc(100vh - 190px);
+  }
+
+  .tab {
+    align-self: center;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    background: #ffffff14;
+    opacity: 0.7;
+    transition: opacity 0.15s;
+  }
+
+  .tab:hover {
+    opacity: 1;
+    color: var(--strong);
+  }
+
+  .chev {
+    display: grid;
+    transition: transform 0.2s;
+  }
+
+  .chev.up {
+    transform: rotate(180deg);
   }
 
   .tiles {
