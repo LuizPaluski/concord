@@ -33,6 +33,32 @@ export function muteSound(on: boolean) {
   if (settings.callSound) tone(on ? [[660, 0, 440]] : [[440, 0, 660]], 0.09)
 }
 
+// Tiro sintetizado: estalo de ruído com decaimento rápido e um baque grave por baixo.
+export function gunshot() {
+  ctx ??= new AudioContext()
+  ctx.resume()
+  const t = ctx.currentTime
+  const noise = ctx.createBuffer(1, ctx.sampleRate * 0.6, ctx.sampleRate)
+  const data = noise.getChannelData(0)
+  for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.07))
+  const src = ctx.createBufferSource()
+  src.buffer = noise
+  const crack = ctx.createGain()
+  crack.gain.value = 0.9
+  src.connect(crack).connect(ctx.destination)
+  src.start(t)
+
+  const boom = ctx.createOscillator()
+  const gain = ctx.createGain()
+  boom.frequency.setValueAtTime(120, t)
+  boom.frequency.exponentialRampToValueAtTime(40, t + 0.25)
+  gain.gain.setValueAtTime(0.8, t)
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.3)
+  boom.connect(gain).connect(ctx.destination)
+  boom.start(t)
+  boom.stop(t + 0.3)
+}
+
 export function showNotification(title: string, body: string, onclick: () => void) {
   if (!settings.notify || !('Notification' in window) || Notification.permission !== 'granted') return
   const n = new Notification(title, { body, silent: true })

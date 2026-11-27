@@ -5,7 +5,7 @@
 
   let { name, x, y }: { name: string; x: number; y: number } = $props()
 
-  const l = $derived(settings.listen[name] ?? DEFAULT_LISTEN)
+  const l = $derived({ ...DEFAULT_LISTEN, ...settings.listen[name] })
 
   function set(change: Partial<typeof DEFAULT_LISTEN>) {
     settings.listen[name] = { ...l, ...change }
@@ -14,7 +14,7 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="menu" role="menu" tabindex="-1" style:left="{Math.min(x, innerWidth - 236)}px" style:top="{Math.min(y, innerHeight - 220)}px" onclick={(e) => e.stopPropagation()}>
+<div class="menu" role="menu" tabindex="-1" style:left="{Math.min(x, innerWidth - 236)}px" style:top="{Math.min(y, innerHeight - 280)}px" onclick={(e) => e.stopPropagation()}>
   <strong><Name {name} /></strong>
   <label class="volume">
     <span>Volume do usuário <em>{l.volume}%</em></span>
@@ -23,6 +23,10 @@
   <label class="check">
     Silenciar
     <input type="checkbox" checked={l.muted} onchange={(e) => set({ muted: e.currentTarget.checked })} />
+  </label>
+  <label class="volume">
+    <span>Volume da transmissão <em>{l.screenVolume}%</em></span>
+    <input type="range" min="0" max="100" step="5" value={l.screenVolume} oninput={(e) => set({ screenVolume: Number(e.currentTarget.value) })} />
   </label>
   <label class="check">
     Silenciar som da transmissão

@@ -419,10 +419,26 @@ func (s *server) ws(w http.ResponseWriter, r *http.Request) {
 		if err := wsjson.Read(ctx, conn, &ev); err != nil {
 			return
 		}
-		if ev.Type == "voice" {
+		switch ev.Type {
+		case "voice":
 			s.hub.setVoice(c, ev.voiceState)
+		case "shot":
+			s.shot(c)
 		}
 	}
+}
+
+// shot toca o tiro para a call inteira. Brincadeira do dono do grupo, só dele.
+func (s *server) shot(c *client) {
+	channel := s.hub.voiceOf(c)
+	if channel == 0 {
+		return
+	}
+	ch, owner, err := s.channelAccess(c.user, strconv.FormatInt(channel, 10))
+	if err != nil || !owner || ch.Kind != "voice" {
+		return
+	}
+	s.hub.sendVoice(channel, map[string]any{"type": "shot", "from": c.user.Name})
 }
 
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {

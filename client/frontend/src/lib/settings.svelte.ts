@@ -25,8 +25,8 @@ type Settings = {
   listen: Record<string, Listen>
 }
 
-export type Listen = { volume: number; muted: boolean; screenMuted: boolean }
-export const DEFAULT_LISTEN: Listen = { volume: 100, muted: false, screenMuted: false }
+export type Listen = { volume: number; muted: boolean; screenVolume: number; screenMuted: boolean }
+export const DEFAULT_LISTEN: Listen = { volume: 100, muted: false, screenVolume: 100, screenMuted: false }
 
 export const settings = $state<Settings>({
   noise: true,

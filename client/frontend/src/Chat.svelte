@@ -2,7 +2,7 @@
   import { onMount, tick } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import { api, auth, loadPeople, mediaUrl, people, uploadFile, type Channel, type Guild, type Message, type Presence } from './lib/api.svelte'
-  import { askPermission, ping, showNotification } from './lib/notify'
+  import { askPermission, gunshot, ping, showNotification } from './lib/notify'
   import { settings } from './lib/settings.svelte'
   import { lastCall, voice } from './lib/voice.svelte'
   import Attachment from './lib/Attachment.svelte'
@@ -167,6 +167,7 @@
     if (ev.type === 'presence') presence = ev.users
     else if (ev.type === 'server') serverChanged(ev.id).catch(notify)
     else if (ev.type === 'profile') people[ev.user.name] = ev.user
+    else if (ev.type === 'shot' && !voice.deafened) gunshot()
     else if (ev.type === 'message') {
       const m: Message = ev.message
       if (ev.server !== serverId) unreadServers.add(ev.server)
@@ -305,6 +306,13 @@
     await api(`/api/servers/${guild.id}/leave`, { method: 'POST' }).catch(notify)
   }
 
+  let lastShot = 0
+  function shoot() {
+    if (Date.now() - lastShot < 1500) return
+    lastShot = Date.now()
+    ws?.send(JSON.stringify({ type: 'shot' }))
+  }
+
   function showPreview(e: MouseEvent, name: string) {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
     preview = { name, x: r.right, y: r.top - 40 }
@@ -439,6 +447,9 @@
         <button class="icon-btn" class:on={voice.sharing} title={voice.sharing ? 'Parar transmissão' : 'Compartilhar tela'} onclick={() => voice.toggleScreen().catch(notify)}>
           <Icon name="screen" size={20} />
         </button>
+        {#if guilds.find((g) => g.id === voiceServer)?.owner === me.id}
+          <button class="icon-btn" title="Tiro (toca para a call toda)" onclick={shoot}><Icon name="target" size={20} /></button>
+        {/if}
         <button class="icon-btn" title="Desconectar" onclick={() => voice.leave()}><Icon name="leave" size={20} /></button>
       </div>
     {/if}

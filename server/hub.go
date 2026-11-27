@@ -66,6 +66,27 @@ func (h *hub) setVoice(c *client, state voiceState) {
 	h.broadcastPresenceLocked()
 }
 
+func (h *hub) voiceOf(c *client) int64 {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return c.voice.Channel
+}
+
+// sendVoice entrega para quem está no canal de voz.
+func (h *hub) sendVoice(channel int64, event any) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var users []int64
+	for c := range h.clients {
+		if c.voice.Channel == channel {
+			users = append(users, c.user.ID)
+		}
+	}
+	if users != nil {
+		h.sendLocked(users, event)
+	}
+}
+
 func (h *hub) broadcast(event any) {
 	h.sendTo(nil, event)
 }

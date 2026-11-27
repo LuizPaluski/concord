@@ -128,9 +128,10 @@ class Voice {
   }
 
   #applyListen(name: string, track: RemoteAudioTrack) {
-    const l = settings.listen[name] ?? DEFAULT_LISTEN
-    const silent = track.source === Track.Source.ScreenShareAudio ? l.screenMuted : l.muted
-    track.setVolume(silent ? 0 : l.volume / 100)
+    const l = { ...DEFAULT_LISTEN, ...settings.listen[name] }
+    const screen = track.source === Track.Source.ScreenShareAudio
+    const silent = screen ? l.screenMuted : l.muted
+    track.setVolume(silent ? 0 : (screen ? l.screenVolume : l.volume) / 100)
   }
 
   async setNoise(on: boolean) {

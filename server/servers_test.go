@@ -2,12 +2,18 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
 )
 
 type harness struct {
@@ -227,5 +233,58 @@ func TestAnexos(t *testing.T) {
 	res.Body.Close()
 	if res.StatusCode != http.StatusPartialContent || res.Header.Get("Content-Type") != "video/mp4" {
 		t.Fatalf("vídeo precisa aceitar Range: %d %s", res.StatusCode, res.Header.Get("Content-Type"))
+	}
+}
+
+func TestTiroSoDoDono(t *testing.T) {
+	h := newHarness(t)
+	invite, _ := h.s.bootstrapInvite()
+	var ana, beto session
+	h.call("POST", "/api/register", "", credentials{invite, "ana", "senha-forte"}, 200, &ana)
+	var inv struct{ Code string }
+	h.call("POST", "/api/servers/1/invites", ana.Token, nil, 200, &inv)
+	h.call("POST", "/api/register", "", credentials{inv.Code, "beto", "senha-forte"}, 200, &beto)
+	var chans []channel
+	h.call("GET", "/api/servers/1/channels", ana.Token, nil, 200, &chans)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	dial := func(token string) *websocket.Conn {
+		conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(h.ts.URL, "http")+"/ws?token="+token, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { conn.CloseNow() })
+		wsjson.Write(ctx, conn, map[string]any{"type": "voice", "channel": chans[1].ID})
+		return conn
+	}
+	a, b := dial(ana.Token), dial(beto.Token)
+	for inCall := 0; inCall < 2; {
+		var ev struct{ Users []presence }
+		if err := wsjson.Read(ctx, b, &ev); err != nil {
+			t.Fatal(err)
+		}
+		inCall = 0
+		for _, u := range ev.Users {
+			if u.Voice == chans[1].ID {
+				inCall++
+			}
+		}
+	}
+
+	// O tiro do beto é ignorado; o primeiro tiro que o beto recebe tem que ser o da ana.
+	wsjson.Write(ctx, b, map[string]string{"type": "shot"})
+	wsjson.Write(ctx, a, map[string]string{"type": "shot"})
+	for {
+		var ev map[string]any
+		if err := wsjson.Read(ctx, b, &ev); err != nil {
+			t.Fatal(err)
+		}
+		if ev["type"] == "shot" {
+			if ev["from"] != "ana" {
+				t.Fatalf("tiro de quem não é dono passou: %v", ev)
+			}
+			return
+		}
 	}
 }
