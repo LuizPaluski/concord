@@ -4,7 +4,7 @@ export type Effect = '' | 'gradient' | 'glow' | 'rainbow'
 export type Guild = { id: number; name: string; icon: string; owner: number }
 export type Channel = { id: number; server: number; name: string; kind: 'text' | 'voice' }
 export type Message = { id: number; channel: number; author: string; authorId: number; body: string; createdAt: number }
-export type Presence = { name: string; voice: number }
+export type Presence = { name: string; voice: number; muted: boolean; deafened: boolean; sharing: boolean }
 type Session = { server: string; token: string; user: User }
 
 const saved = localStorage.getItem('concord.session')

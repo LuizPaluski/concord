@@ -21,7 +21,12 @@ type Settings = {
   screenFps: (typeof FRAME_RATES)[number]
   screenAudio: boolean
   theme: keyof typeof THEMES
+  // Ajustes que cada um faz só para si sobre o áudio dos outros, por nome.
+  listen: Record<string, Listen>
 }
+
+export type Listen = { volume: number; muted: boolean; screenMuted: boolean }
+export const DEFAULT_LISTEN: Listen = { volume: 100, muted: false, screenMuted: false }
 
 export const settings = $state<Settings>({
   noise: true,
@@ -32,6 +37,7 @@ export const settings = $state<Settings>({
   screenFps: 60,
   screenAudio: true,
   theme: 'escuro',
+  listen: {},
   ...JSON.parse(localStorage.getItem(KEY) ?? '{}'),
 })
 

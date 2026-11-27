@@ -3,10 +3,16 @@
   import { hue, type Channel, type Presence } from './lib/api.svelte'
   import Avatar from './lib/Avatar.svelte'
   import Name from './lib/Name.svelte'
+  import VoiceStatus from './lib/VoiceStatus.svelte'
   import { voice } from './lib/voice.svelte'
   import Icon from './lib/Icon.svelte'
 
-  let { channel, members, onerror }: { channel: Channel; members: Presence[]; onerror: (err: unknown) => void } = $props()
+  let {
+    channel,
+    members,
+    onerror,
+    onmenu,
+  }: { channel: Channel; members: Presence[]; onerror: (err: unknown) => void; onmenu: (e: MouseEvent, name: string) => void } = $props()
 
   const joined = $derived(voice.channel === channel.id)
 
@@ -37,9 +43,9 @@
     {#if members.length}
       <div class="tiles" class:compact={joined && voice.screens.length > 0}>
         {#each members as p (p.name)}
-          <div class="tile" class:speaking={voice.speaking.includes(p.name)} style:--h={hue(p.name)}>
+          <div class="tile" role="listitem" class:speaking={voice.speaking.includes(p.name)} style:--h={hue(p.name)} oncontextmenu={(e) => onmenu(e, p.name)}>
             <Avatar name={p.name} size={joined && voice.screens.length ? 44 : 80} />
-            <span class="label"><Name name={p.name} /></span>
+            <span class="label"><Name name={p.name} /> <VoiceStatus {p} /></span>
           </div>
         {/each}
       </div>
@@ -170,6 +176,9 @@
   }
 
   .label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     position: absolute;
     left: 8px;
     bottom: 8px;

@@ -1,9 +1,9 @@
-import { AudioPresets, Room, RoomEvent, Track } from 'livekit-client'
+import { AudioPresets, RemoteAudioTrack, Room, RoomEvent, Track } from 'livekit-client'
 import { api } from './api.svelte'
 import { desktop } from './desktop'
 import { noiseFilter } from './noise'
 import { callSound } from './notify'
-import { RESOLUTIONS, settings } from './settings.svelte'
+import { DEFAULT_LISTEN, RESOLUTIONS, settings } from './settings.svelte'
 
 // Bits por pixel por quadro estimado a partir de presets comuns (1080p60 dá ~8,7 Mbps).
 // Se a imagem borrar em jogo rápido, é este número que se ajusta.
@@ -40,12 +40,13 @@ class Voice {
     const room = new Room({ adaptiveStream: true, dynacast: true })
     this.#room = room
     room
-      .on(RoomEvent.TrackSubscribed, (track) => {
+      .on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
         if (this.#room !== room) return
-        if (track.kind === Track.Kind.Audio) {
+        if (track instanceof RemoteAudioTrack) {
           const el = track.attach()
           el.muted = this.deafened
           this.#audio.append(el)
+          this.#applyListen(participant.identity, track)
         }
         this.#refresh()
       })
@@ -103,6 +104,18 @@ class Voice {
   async toggleDeafen() {
     this.#setDeafened(!this.deafened)
     await this.#applyMic()
+  }
+
+  // Reaplica volume e silêncio que eu defini para essa pessoa.
+  applyListen(name: string) {
+    const p = this.#room?.remoteParticipants.get(name)
+    p?.audioTrackPublications.forEach((pub) => pub.track && this.#applyListen(name, pub.track as RemoteAudioTrack))
+  }
+
+  #applyListen(name: string, track: RemoteAudioTrack) {
+    const l = settings.listen[name] ?? DEFAULT_LISTEN
+    const silent = track.source === Track.Source.ScreenShareAudio ? l.screenMuted : l.muted
+    track.setVolume(silent ? 0 : l.volume / 100)
   }
 
   async setNoise(on: boolean) {

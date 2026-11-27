@@ -103,11 +103,11 @@ func TestFluxoCompleto(t *testing.T) {
 		t.Fatalf("histórico errado: %+v", msgs)
 	}
 
-	wsjson.Write(ctx, conn, map[string]any{"type": "voice", "channel": voice.ID})
+	wsjson.Write(ctx, conn, map[string]any{"type": "voice", "channel": voice.ID, "muted": true, "sharing": true})
 	if err := wsjson.Read(ctx, conn, &ev); err != nil || ev["type"] != "presence" {
 		t.Fatalf("esperava presence após entrar na voz: %v %v", ev, err)
 	}
-	if u := ev["users"].([]any)[0].(map[string]any); u["voice"] != float64(voice.ID) {
+	if u := ev["users"].([]any)[0].(map[string]any); u["voice"] != float64(voice.ID) || u["muted"] != true || u["sharing"] != true || u["deafened"] != false {
 		t.Fatalf("presença de voz errada: %v", u)
 	}
 

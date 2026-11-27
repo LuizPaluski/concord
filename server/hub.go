@@ -9,8 +9,16 @@ import (
 
 type client struct {
 	user  user
-	voice int64 // canal de voz em que está, 0 se nenhum
+	voice voiceState
 	send  chan []byte
+}
+
+// voiceState é o que o cliente conta de si na call; Channel 0 é fora de call.
+type voiceState struct {
+	Channel  int64 `json:"channel"`
+	Muted    bool  `json:"muted"`
+	Deafened bool  `json:"deafened"`
+	Sharing  bool  `json:"sharing"`
 }
 
 type hub struct {
@@ -19,8 +27,11 @@ type hub struct {
 }
 
 type presence struct {
-	Name  string `json:"name"`
-	Voice int64  `json:"voice"`
+	Name     string `json:"name"`
+	Voice    int64  `json:"voice"`
+	Muted    bool   `json:"muted"`
+	Deafened bool   `json:"deafened"`
+	Sharing  bool   `json:"sharing"`
 }
 
 func newHub() *hub {
@@ -42,13 +53,16 @@ func (h *hub) remove(c *client) {
 	}
 }
 
-func (h *hub) setVoice(c *client, channel int64) {
+func (h *hub) setVoice(c *client, state voiceState) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if _, ok := h.clients[c]; !ok {
 		return
 	}
-	c.voice = channel
+	if state.Channel == 0 {
+		state = voiceState{}
+	}
+	c.voice = state
 	h.broadcastPresenceLocked()
 }
 
@@ -96,15 +110,16 @@ func (h *hub) dropLocked(c *client) bool {
 }
 
 func (h *hub) broadcastPresenceLocked() {
-	voice := map[string]int64{}
+	// Com o app aberto em dois lugares, vale a conexão que está em call.
+	byName := map[string]voiceState{}
 	for c := range h.clients {
-		if c.voice != 0 || voice[c.user.Name] == 0 {
-			voice[c.user.Name] = c.voice
+		if c.voice.Channel != 0 || byName[c.user.Name].Channel == 0 {
+			byName[c.user.Name] = c.voice
 		}
 	}
-	users := make([]presence, 0, len(voice))
-	for name, ch := range voice {
-		users = append(users, presence{name, ch})
+	users := make([]presence, 0, len(byName))
+	for name, v := range byName {
+		users = append(users, presence{name, v.Channel, v.Muted, v.Deafened, v.Sharing})
 	}
 	sort.Slice(users, func(i, j int) bool { return users[i].Name < users[j].Name })
 	h.broadcastLocked(map[string]any{"type": "presence", "users": users})

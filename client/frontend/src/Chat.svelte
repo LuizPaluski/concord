@@ -14,6 +14,8 @@
   import Settings from './Settings.svelte'
   import SourcePicker from './SourcePicker.svelte'
   import Stage from './Stage.svelte'
+  import VoiceUserMenu from './VoiceUserMenu.svelte'
+  import VoiceStatus from './lib/VoiceStatus.svelte'
 
   const me = auth.session!.user
   const PAGE = 50
@@ -36,6 +38,7 @@
   let modal = $state<'settings' | 'server' | 'add' | null>(null)
   let menu = $state(false)
   let card = $state<{ name: string; x: number; y: number } | null>(null)
+  let listenMenu = $state<{ name: string; x: number; y: number } | null>(null)
   let showMembers = $state(true)
   let scroller = $state<HTMLElement>()
   // Rótulo da call atual, que pode ser de outro grupo que não o aberto.
@@ -68,10 +71,11 @@
     }
   })
 
-  // O servidor repassa a sala de voz de cada um para a lista lateral.
+  // O servidor repassa a sala de voz e o estado de cada um para a lista lateral.
+  const voiceState = () => JSON.stringify({ type: 'voice', channel: voice.channel, muted: voice.muted || voice.deafened, deafened: voice.deafened, sharing: voice.sharing })
   $effect(() => {
-    const channel = voice.channel
-    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'voice', channel }))
+    const state = voiceState()
+    if (ws?.readyState === WebSocket.OPEN) ws.send(state)
   })
 
   $effect(() => {
@@ -120,7 +124,7 @@
     const sock = new WebSocket(s.server.replace(/^http/, 'ws') + '/ws?token=' + encodeURIComponent(s.token))
     ws = sock
     sock.onopen = () => {
-      if (voice.channel) sock.send(JSON.stringify({ type: 'voice', channel: voice.channel }))
+      if (voice.channel) sock.send(voiceState())
       if (reconnecting) load().catch(notify)
     }
     sock.onmessage = (e) => handle(JSON.parse(e.data))
@@ -259,6 +263,13 @@
     await api(`/api/servers/${guild.id}/leave`, { method: 'POST' }).catch(notify)
   }
 
+  function showListen(e: MouseEvent, name: string) {
+    e.preventDefault()
+    e.stopPropagation()
+    card = null
+    listenMenu = name === me.name ? null : { name, x: e.clientX, y: e.clientY }
+  }
+
   function showCard(e: MouseEvent, name: string) {
     e.stopPropagation()
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
@@ -292,7 +303,7 @@
       .join('')
 </script>
 
-<svelte:window onclick={() => ((card = null), (menu = false))} onkeydown={(e) => e.key === 'Escape' && ((card = null), (menu = false))} />
+<svelte:window onclick={() => ((card = listenMenu = null), (menu = false))} onkeydown={(e) => e.key === 'Escape' && ((card = listenMenu = null), (menu = false))} />
 
 <div class="shell" class:no-members={!showMembers || current?.kind !== 'text'}>
   <nav class="rail" aria-label="Grupos">
@@ -350,9 +361,10 @@
             </div>
             {#if c.kind === 'voice'}
               {#each members(c.id) as p (p.name)}
-                <button class="voice-member" class:speaking={voice.speaking.includes(p.name)} onclick={(e) => showCard(e, p.name)}>
+                <button class="voice-member" class:speaking={voice.speaking.includes(p.name)} onclick={(e) => showCard(e, p.name)} oncontextmenu={(e) => showListen(e, p.name)}>
                   <Avatar name={p.name} size={24} />
                   <Name name={p.name} />
+                  <VoiceStatus {p} />
                 </button>
               {/each}
             {/if}
@@ -398,7 +410,7 @@
   </aside>
 
   {#if current?.kind === 'voice'}
-    <Stage channel={current} members={members(current.id)} onerror={notify} />
+    <Stage channel={current} members={members(current.id)} onerror={notify} onmenu={showListen} />
   {:else if current}
     <main class="chat">
       <header class="topbar">
@@ -478,6 +490,7 @@
     </div>
   {/if}
 
+  {#if listenMenu}<VoiceUserMenu {...listenMenu} />{/if}
   {#if toast}<div class="toast" role="status">{toast}</div>{/if}
   {#if modal === 'settings'}<Settings onclose={() => (modal = null)} onerror={notify} />{/if}
   {#if modal === 'server' && guild}<ServerSettings {guild} {channels} onclose={() => (modal = null)} onerror={notify} />{/if}

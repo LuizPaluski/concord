@@ -388,14 +388,14 @@ func (s *server) ws(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		var ev struct {
-			Type    string `json:"type"`
-			Channel int64  `json:"channel"`
+			Type string `json:"type"`
+			voiceState
 		}
 		if err := wsjson.Read(ctx, conn, &ev); err != nil {
 			return
 		}
 		if ev.Type == "voice" {
-			s.hub.setVoice(c, ev.Channel)
+			s.hub.setVoice(c, ev.voiceState)
 		}
 	}
 }
