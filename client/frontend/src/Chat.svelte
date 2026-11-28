@@ -4,6 +4,7 @@
   import { api, auth, loadPeople, mediaUrl, people, uploadFile, type Channel, type Guild, type Message, type Presence } from './lib/api.svelte'
   import { askPermission, gunshot, ping, showNotification } from './lib/notify'
   import { settings } from './lib/settings.svelte'
+  import { spotify } from './lib/spotify.svelte'
   import { lastCall, voice } from './lib/voice.svelte'
   import Attachment from './lib/Attachment.svelte'
   import Avatar from './lib/Avatar.svelte'
@@ -15,6 +16,7 @@
   import Settings from './Settings.svelte'
   import SourcePicker from './SourcePicker.svelte'
   import Stage from './Stage.svelte'
+  import SpotifyBar from './SpotifyBar.svelte'
   import StreamPreview from './StreamPreview.svelte'
   import VoiceUserMenu from './VoiceUserMenu.svelte'
   import VoiceStatus from './lib/VoiceStatus.svelte'
@@ -83,6 +85,12 @@
   $effect(() => {
     const state = voiceState()
     if (ws?.readyState === WebSocket.OPEN) ws.send(state)
+  })
+
+  // A música compartilhada vai pelo mesmo WebSocket e só vale dentro da call.
+  spotify.send = (state) => ws?.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: 'spotify', state }))
+  $effect(() => {
+    if (!voice.channel) spotify.leaveCall()
   })
 
   $effect(() => {
@@ -170,6 +178,7 @@
     else if (ev.type === 'server') serverChanged(ev.id).catch(notify)
     else if (ev.type === 'profile') people[ev.user.name] = ev.user
     else if (ev.type === 'shot' && !voice.deafened) gunshot()
+    else if (ev.type === 'spotify') spotify.onJam(ev.jam)
     else if (ev.type === 'release') window.dispatchEvent(new Event('concord:release'))
     else if (ev.type === 'message') {
       const m: Message = ev.message
@@ -447,6 +456,7 @@
       </div>
     {/if}
 
+    {#if voice.channel && spotify.available}<SpotifyBar />{/if}
     {#if voice.channel || voice.connecting}
       <div class="voice-panel">
         <div class="voice-status">

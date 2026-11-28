@@ -13,6 +13,8 @@ type Desktop = {
   stopScreenAudio(): Promise<void>
   setMuteKey(accelerator: string): Promise<boolean>
   onMuteKey(fn: () => void): void
+  spotifyLogin(url: string): Promise<Record<string, string>>
+  spotifyToken(form: Record<string, string>): Promise<{ ok: boolean; body: any }>
   checkUpdate(): Promise<{ version: string } | null>
   installUpdate(): Promise<void>
 }

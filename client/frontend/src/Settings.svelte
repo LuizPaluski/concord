@@ -3,6 +3,7 @@
   import { desktop } from './lib/desktop'
   import { accelerator } from './lib/hotkey'
   import { askPermission } from './lib/notify'
+  import { spotify } from './lib/spotify.svelte'
   import { FRAME_RATES, RESOLUTIONS, THEMES, settings } from './lib/settings.svelte'
   import { voice } from './lib/voice.svelte'
   import Icon from './lib/Icon.svelte'
@@ -202,6 +203,22 @@
               </button>
               {#if settings.muteKey && !capturing}<button class="link" onclick={() => setKey('')}>Remover</button>{/if}
             </div>
+          </div>
+        </section>
+      {/if}
+      {#if spotify.available}
+        <h3>Spotify</h3>
+        <section>
+          <div class="row">
+            <span>
+              <strong>{spotify.connected ? 'Spotify conectado' : 'Spotify não conectado'}</strong>
+              <small>Para ouvir junto na call. Precisa de Premium e do app do Spotify aberto no PC.</small>
+            </span>
+            {#if spotify.connected}
+              <button class="link" onclick={() => spotify.logout()}>Desconectar</button>
+            {:else}
+              <button class="btn" onclick={() => spotify.login().catch(onerror)}>Conectar</button>
+            {/if}
           </div>
         </section>
       {/if}

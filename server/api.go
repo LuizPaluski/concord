@@ -413,7 +413,8 @@ func (s *server) ws(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		var ev struct {
-			Type string `json:"type"`
+			Type  string          `json:"type"`
+			State json.RawMessage `json:"state"`
 			voiceState
 		}
 		if err := wsjson.Read(ctx, conn, &ev); err != nil {
@@ -424,6 +425,8 @@ func (s *server) ws(w http.ResponseWriter, r *http.Request) {
 			s.hub.setVoice(c, ev.voiceState)
 		case "shot":
 			s.shot(c)
+		case "spotify":
+			s.hub.shareJam(c, ev.State)
 		}
 	}
 }

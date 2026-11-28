@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('desktop', {
   },
   setMuteKey: (accelerator) => ipcRenderer.invoke('hotkey:set', accelerator),
   onMuteKey: (fn) => ipcRenderer.on('hotkey:mute', () => fn()),
+  spotifyLogin: (url) => ipcRenderer.invoke('spotify:login', url),
+  spotifyToken: (form) => ipcRenderer.invoke('spotify:token', form),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
   installUpdate: () => ipcRenderer.invoke('update:install'),
 })

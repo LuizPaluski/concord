@@ -1,6 +1,7 @@
 const { app, BrowserWindow, desktopCapturer, globalShortcut, ipcMain, net, protocol, session, shell } = require('electron')
 const { autoUpdater } = require('electron-updater')
 const { spawn } = require('node:child_process')
+const http = require('node:http')
 const os = require('node:os')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
@@ -163,6 +164,45 @@ ipcMain.handle('hotkey:set', (_, accelerator) => {
 })
 
 app.on('will-quit', () => globalShortcut.unregisterAll())
+
+// Login do Spotify: o navegador volta para este endereço com o código de autorização.
+// O Spotify só aceita 127.0.0.1 (não localhost) e a porta precisa ser a cadastrada no app.
+const SPOTIFY_PORT = 43821
+let spotifyLogin = null
+
+ipcMain.handle('spotify:login', (_, url) => {
+  spotifyLogin?.close()
+  return new Promise((resolve, reject) => {
+    const server = http.createServer((req, res) => {
+      const query = new URL(req.url, `http://127.0.0.1:${SPOTIFY_PORT}`).searchParams
+      if (!query.has('code') && !query.has('error')) return res.writeHead(404).end()
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+      res.end('<body style="font-family:sans-serif;background:#1e1f22;color:#fff;display:grid;place-items:center;height:90vh"><h2>Pronto, pode voltar para o Concord.</h2></body>')
+      server.close()
+      win?.focus()
+      resolve(Object.fromEntries(query))
+    })
+    server.on('error', reject)
+    server.on('close', () => spotifyLogin === server && (spotifyLogin = null))
+    server.listen(SPOTIFY_PORT, '127.0.0.1', () => shell.openExternal(url))
+    spotifyLogin = server
+    setTimeout(() => {
+      if (!server.listening) return
+      server.close()
+      reject(new Error('o login do Spotify demorou demais'))
+    }, 5 * 60 * 1000)
+  })
+})
+
+// Troca e renovação de token feitas aqui para não depender do CORS do Spotify com a origem app://.
+ipcMain.handle('spotify:token', async (_, form) => {
+  const res = await net.fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(form).toString(),
+  })
+  return { ok: res.ok, body: await res.json() }
+})
 
 ipcMain.handle('update:check', async () => {
   if (!app.isPackaged) return null

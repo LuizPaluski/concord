@@ -24,6 +24,13 @@ type voiceState struct {
 type hub struct {
 	mu      sync.Mutex
 	clients map[*client]struct{}
+	jams    map[int64]jam // música do Spotify compartilhada em cada canal de voz
+}
+
+// jam é o que o anfitrião está tocando; o estado vai e volta como o cliente mandou.
+type jam struct {
+	Host  string          `json:"host"`
+	State json.RawMessage `json:"state"`
 }
 
 type presence struct {
@@ -35,7 +42,7 @@ type presence struct {
 }
 
 func newHub() *hub {
-	return &hub{clients: map[*client]struct{}{}}
+	return &hub{clients: map[*client]struct{}{}, jams: map[int64]jam{}}
 }
 
 func (h *hub) add(c *client) {
@@ -48,6 +55,7 @@ func (h *hub) add(c *client) {
 func (h *hub) remove(c *client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.endJamLocked(c, c.voice.Channel)
 	if h.dropLocked(c) {
 		h.broadcastPresenceLocked()
 	}
@@ -62,8 +70,43 @@ func (h *hub) setVoice(c *client, state voiceState) {
 	if state.Channel == 0 {
 		state = voiceState{}
 	}
+	old := c.voice.Channel
 	c.voice = state
+	if old != state.Channel {
+		h.endJamLocked(c, old)
+		if j, ok := h.jams[state.Channel]; ok {
+			h.sendLocked([]int64{c.user.ID}, map[string]any{"type": "spotify", "jam": j})
+		}
+	}
 	h.broadcastPresenceLocked()
+}
+
+// shareJam guarda e repassa a música de quem está compartilhando; estado vazio encerra.
+func (h *hub) shareJam(c *client, state json.RawMessage) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	channel := c.voice.Channel
+	if channel == 0 {
+		return
+	}
+	if len(state) == 0 || string(state) == "null" {
+		h.endJamLocked(c, channel)
+		return
+	}
+	// Uma música por call: quem chegou primeiro segue como anfitrião.
+	if j, ok := h.jams[channel]; ok && j.Host != c.user.Name {
+		return
+	}
+	j := jam{c.user.Name, state}
+	h.jams[channel] = j
+	h.sendVoiceLocked(channel, map[string]any{"type": "spotify", "jam": j})
+}
+
+func (h *hub) endJamLocked(c *client, channel int64) {
+	if j, ok := h.jams[channel]; ok && j.Host == c.user.Name {
+		delete(h.jams, channel)
+		h.sendVoiceLocked(channel, map[string]any{"type": "spotify", "jam": nil})
+	}
 }
 
 func (h *hub) voiceOf(c *client) int64 {
@@ -76,6 +119,10 @@ func (h *hub) voiceOf(c *client) int64 {
 func (h *hub) sendVoice(channel int64, event any) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.sendVoiceLocked(channel, event)
+}
+
+func (h *hub) sendVoiceLocked(channel int64, event any) {
 	var users []int64
 	for c := range h.clients {
 		if c.voice.Channel == channel {

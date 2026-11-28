@@ -288,3 +288,61 @@ func TestTiroSoDoDono(t *testing.T) {
 		}
 	}
 }
+
+func TestSpotifyJunto(t *testing.T) {
+	h := newHarness(t)
+	invite, _ := h.s.bootstrapInvite()
+	var ana, beto session
+	h.call("POST", "/api/register", "", credentials{invite, "ana", "senha-forte"}, 200, &ana)
+	var inv struct{ Code string }
+	h.call("POST", "/api/servers/1/invites", ana.Token, nil, 200, &inv)
+	h.call("POST", "/api/register", "", credentials{inv.Code, "beto", "senha-forte"}, 200, &beto)
+	var chans []channel
+	h.call("GET", "/api/servers/1/channels", ana.Token, nil, 200, &chans)
+	sala := chans[1].ID
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	dial := func(token string) *websocket.Conn {
+		conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(h.ts.URL, "http")+"/ws?token="+token, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { conn.CloseNow() })
+		return conn
+	}
+	// Lê até o próximo evento do Spotify, pulando presença.
+	nextJam := func(conn *websocket.Conn) map[string]any {
+		for {
+			var ev map[string]any
+			if err := wsjson.Read(ctx, conn, &ev); err != nil {
+				t.Fatal(err)
+			}
+			if ev["type"] == "spotify" {
+				j, _ := ev["jam"].(map[string]any)
+				return j
+			}
+		}
+	}
+
+	a := dial(ana.Token)
+	wsjson.Write(ctx, a, map[string]any{"type": "voice", "channel": sala})
+	wsjson.Write(ctx, a, map[string]any{"type": "spotify", "state": map[string]any{"uri": "spotify:track:1"}})
+	if j := nextJam(a); j["host"] != "ana" {
+		t.Fatalf("anfitriã deveria receber o próprio jam: %v", j)
+	}
+
+	// Quem entra depois recebe a música que já está tocando.
+	b := dial(beto.Token)
+	wsjson.Write(ctx, b, map[string]any{"type": "voice", "channel": sala})
+	if j := nextJam(b); j["host"] != "ana" || j["state"].(map[string]any)["uri"] != "spotify:track:1" {
+		t.Fatalf("beto deveria pegar a música da ana: %v", j)
+	}
+
+	// beto não toma o lugar da ana; quando ela sai da call, o jam acaba.
+	wsjson.Write(ctx, b, map[string]any{"type": "spotify", "state": map[string]any{"uri": "spotify:track:2"}})
+	wsjson.Write(ctx, a, map[string]any{"type": "voice", "channel": 0})
+	if j := nextJam(b); j != nil {
+		t.Fatalf("jam deveria acabar quando a anfitriã sai: %v", j)
+	}
+}
